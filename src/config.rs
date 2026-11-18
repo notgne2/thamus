@@ -143,7 +143,12 @@ impl Config {
         while let Some(entry) = settings_read_dir.recv().await {
             let ext = entry
                 .extension()
-                .context("Selfserve settings files need to have an extension")?
+                .with_context(|| {
+                    format!(
+                        "Selfserve settings file missing an extension: {}",
+                        entry.display()
+                    )
+                })?
                 .to_owned();
             let file_reader = safe_sandbox_file_reader(root.clone(), entry)
                 .await

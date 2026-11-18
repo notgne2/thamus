@@ -191,6 +191,10 @@ pub async fn safe_read_sandbox_dir(
 
             let file_name_str = OsStr::from_bytes(entry.file_name().to_bytes());
 
+            if file_name_str == OsStr::new(".") || file_name_str == OsStr::new("..") {
+                continue;
+            }
+
             let sub_path = SandboxPath::new(path.path().join(file_name_str));
 
             tx.send(sub_path)

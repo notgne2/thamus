@@ -1,7 +1,7 @@
 use crate::{CommonResources, agent::AgentConfig, config::snapshot_config, db};
 use anyhow::{Context as _, Result};
 use serde::{Deserialize, Serialize};
-use tracing::trace;
+use tracing::{debug, trace};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -21,6 +21,13 @@ pub async fn get_slot(
     id: &str,
     is_dream: bool,
 ) -> Result<u8> {
+    if (sub_config.slots.agent_slots.is_empty() && !is_dream)
+        || (sub_config.slots.dream_slots.is_empty() && is_dream)
+    {
+        debug!("No slots configured for this instance type, assigning 0 without checking");
+        return Ok(0);
+    }
+
     let config_snapshot = snapshot_config(&common.config).await;
 
     let (slot, last_was_dream, last_instance_id) = db::slots::acquire_slot(

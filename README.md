@@ -61,3 +61,34 @@ I at least _tried_ to _try_ these out. I was disgusted 🤮. I cannot bare to lo
 - Various other slop piles, of varying popularity
 
 None of them passed the smell test, half of them didn't work, absolutely none of it was reasonable. It makes me sick to think about these. I can't use them, that's why I had to make this.
+
+## Setup
+
+Throw this in `settings/whatever.toml`
+
+```toml
+[platforms.discord]
+token = "lol."
+
+[platforms.discord_voice]
+token = "lmao even"
+
+[server]
+port = 6969
+
+[providers.llm]
+api_key = "test"
+model = "gemini-3-flash"
+base_url = "http://localhost:3001/v1"
+max_ctx = 900_000
+
+[providers.llm.default_constraints]
+max_gen = 2000
+max_think = 1024
+```
+
+Run `thamus run`.
+
+You can have as many config files as you like, they all get merged. Want to pre-populate it all? Check out the `/api/config` endpoint.
+
+Add some config rules to let your your agent edit its own config too.

@@ -110,7 +110,7 @@ pub fn make_instructions(
         let voice_card = voice_config
             .voices
             .iter()
-            .find(|v| v.name == voice_config.default_voice)
+            .find(|v| Some(v.name.as_str()) == voice_config.default_voice.as_deref())
             .context("Default voice not found")?
             .char_card
             .clone()
@@ -118,7 +118,10 @@ pub fn make_instructions(
 
         let voice_text = formatx!(
             q.voice,
-            voice_name = voice_config.default_voice,
+            voice_name = voice_config
+                .default_voice
+                .as_deref()
+                .unwrap_or("[no voice]"),
             voice_card = voice_card
         )
         .context("Formatting voice text")?;

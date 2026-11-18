@@ -121,7 +121,7 @@ impl DiscordVoicePlatformInstance {
         let mut voice = None;
 
         for v in &config_snapshot.instance.voice.voices {
-            if v.name == config_snapshot.instance.voice.default_voice.clone() {
+            if Some(v.name.as_str()) == config_snapshot.instance.voice.default_voice.as_deref() {
                 voice = Some(v);
                 break;
             }

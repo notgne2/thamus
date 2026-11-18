@@ -66,25 +66,34 @@ pub struct VoiceDefinition {
 /// Configuration for the voice characteristics of the instance
 #[serde_inline_default]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct VoiceConfig {
     /// List of voices available for use
-    #[serde(default)]
     pub voices: Vec<VoiceDefinition>,
 
     /// Default voice to use for talking
-    pub default_voice: String,
+    pub default_voice: Option<String>,
 
     /// How long before a user is considered to be no-longer speaking
-    #[serde_inline_default(900)]
     pub voice_silence_ms: u64,
 
     /// Path to an audio file to play while thinking
-    #[serde(default)]
     pub thinking_wav: Option<PathBuf>,
 
     /// Path to an audio file to play while working
-    #[serde(default)]
     pub working_wav: Option<PathBuf>,
+}
+
+impl Default for VoiceConfig {
+    fn default() -> Self {
+        Self {
+            voices: Vec::new(),
+            default_voice: None,
+            voice_silence_ms: 900,
+            thinking_wav: None,
+            working_wav: None,
+        }
+    }
 }
 
 /// Configuration for message templates used by the instance
@@ -121,27 +130,22 @@ impl Default for MemoryConfig {
 }
 
 /// Configuration for the instance
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct InstanceConfig {
     /// Configure smarts
-    #[serde(default)]
     pub smarts: smarts::SmartsConfig,
     /// Configure the instructions
-    #[serde(default)]
     pub prompts: instructions::InstructionsConfig,
     /// Configure voice
     pub voice: VoiceConfig,
     /// How this instance behaves in chat
-    #[serde(default)]
     pub chat: ChatConfig,
     /// Configures how memory is used
-    #[serde(default)]
     pub memory: MemoryConfig,
     /// Message templates
-    #[serde(default)]
     pub messages: MessagesConfig,
     /// Tooling settings
-    #[serde(default)]
     pub tooling: tooling::ToolingConfig,
 }
 

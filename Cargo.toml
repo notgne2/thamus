@@ -1,0 +1,88 @@
+cargo-features = ["codegen-backend"]
+
+[package]
+name = "thamus"
+version = "0.4.0"
+edition = "2024"
+description = "Thamus - A multi-platform AI assistant in Rust"
+license = "AGPL-3.0-only"
+
+[[bin]]
+name = "thamus"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1.54.1", features = ["full", "rt"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
+anyhow = "1.0.104"
+thiserror = "2.0.21"
+async-trait = "0.1"
+serenity = { version = "0.12.5", features = ["client", "gateway", "model", "voice"] }
+futures = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+sqlite-vec = "0.1.9"
+bpaf = { version = "0.9.28", features = ["derive", "dull-color"] }
+poem = { version = "3.1.12", features = ["anyhow"] }
+poem-openapi = { version = "5.1.16", features = ["swagger-ui"] }
+libsqlite3-sys = "0.37.0"
+sqlx = { version = "0.9.0", features = [ "runtime-tokio", "migrate", "json", "sqlite" ] }
+rand = "0.10.3"
+jiff = { version = "0.2.42", features = ["serde"] }
+regex = "1.13.1"
+reqwest = { version = "0.13.5", features = ["multipart"] }
+base64 = "0.23.1"
+nanoid = "0.5.0"
+rmcp = { version = "3.9.0", features = ["client", "transport-streamable-http-client", "transport-streamable-http-client-reqwest", "transport-child-process", "__reqwest"] }
+dashmap = "6.2.1"
+inotify = "0.11.5"
+tokio-stream = { version = "0.1.19", features = ["io-util"] }
+# azalea = { git = "https://github.com/azalea-rs/azalea" }
+# azalea-viaversion = { git = "https://github.com/azalea-rs/azalea-viaversion" }
+# bevy_log = "0.19.1"
+formatx = "0.4.2"
+similar = "3.2.1"
+strsim = "0.11"
+rustix = { version = "1.1.6", features = ["fs"] }
+tokio-util = { version = "0.7.20", features = ["io"] }
+eventsource-stream = "0.2.3"
+imagesize = "0.15"
+async-stream = "0.3.6"
+rustls = { version = "0.23.46", features = ["ring"] }
+nu-ansi-term = "0.50"
+obscura = { git = "https://github.com/h4ckf0r0day/obscura", tag = "v0.1.7" }
+scraper = "0.29.0"
+backon = "1.6.0"
+zerocopy = "0.8.63"
+songbird = { version = "0.6", features = ["builtin-queue", "receive", "driver"] }
+symphonia = { version = "0.5", features = ["aac", "mp3", "isomp4", "alac", "wav"] }
+json-patch = "5.0.0"
+json5 = "1.3.7"
+serde-inline-default = "1.0.3"
+indoc = "2.0.8"
+ron = "0.12.3"
+toml = "1.2.1"
+
+[dev-dependencies]
+tokio-test = "0.4"
+mockall = "0.15.0"
+
+[lints.clippy]
+all = "deny"
+pedantic = "warn"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+[profile.dev]
+codegen-backend = "cranelift"
+debug = "line-tables-only"
+strip = "debuginfo"
+
+[profile.dev.package."*"]
+debug = false
+strip = "none"
+codegen-backend = "llvm"

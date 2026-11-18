@@ -63,6 +63,7 @@ serde-inline-default = "1.0.3"
 indoc = "2.0.8"
 ron = "0.12.3"
 toml = "1.2.1"
+memchr = "2.8.3"
 
 [dev-dependencies]
 tokio-test = "0.4"

@@ -1,5 +1,8 @@
 use std::collections::HashMap;
 use std::ffi::OsStr;
+use std::ffi::OsString;
+use std::io::Seek as _;
+use std::io::SeekFrom;
 use std::os::fd::OwnedFd;
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::Path;
@@ -11,9 +14,16 @@ use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 use serde::Serialize;
 use tokio::fs;
+use tokio::fs::OpenOptions;
+use tokio::io::AsyncRead;
+use tokio::io::AsyncReadExt as _;
+use tokio::io::AsyncWriteExt as _;
+use tokio::io::BufReader;
+use tokio::io::BufWriter;
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio::task;
+use tracing::instrument;
 use tracing::trace;
 
 use crate::utils::TruncatedReadRes;
@@ -196,16 +206,10 @@ pub async fn safe_read_sandbox_dir(
     Ok(rx)
 }
 
-pub async fn safe_open_sandbox_file(
+pub async fn safe_sandbox_file_reader_uncapped(
     in_root: PathBuf,
     mut path: SandboxPath,
-    write: bool,
 ) -> Result<fs::File> {
-    // trace!(
-    //     "Opening sandbox file: in_root={:?}, path={:?}, write={}",
-    //     in_root, path, write
-    // );
-
     path = path.absolutify();
 
     let file = task::spawn_blocking(move || {
@@ -213,27 +217,68 @@ pub async fn safe_open_sandbox_file(
         let fd = rustix::fs::openat2(
             root_file,
             path.path(),
-            (if write {
-                rustix::fs::OFlags::WRONLY | rustix::fs::OFlags::CREATE
-            } else {
-                rustix::fs::OFlags::RDONLY
-            }) | rustix::fs::OFlags::CLOEXEC,
-            if write {
-                rustix::fs::Mode::from_bits(0o644).unwrap()
-            } else {
-                rustix::fs::Mode::empty()
-            },
+            rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::CLOEXEC,
+            rustix::fs::Mode::empty(),
             rustix::fs::ResolveFlags::NO_MAGICLINKS | rustix::fs::ResolveFlags::IN_ROOT,
         )
         .with_context(|| {
             format!(
-                "Safely opening sandbox file path: {} in real-world root {} for {}",
+                "Safely opening sandbox file path: {} in real-world root {} to safely read",
                 path.display(),
                 in_root.display(),
-                if write { "writing" } else { "reading" },
             )
         })?;
         let file = std::fs::File::from(fd);
+        anyhow::Ok(fs::File::from_std(file))
+    })
+    .await
+    .context("spawning blocking file read task")?
+    .context("opening sandbox file to read")?;
+
+    Ok(file)
+}
+
+pub async fn safe_sandbox_file_reader(
+    in_root: PathBuf,
+    path: SandboxPath,
+) -> Result<impl AsyncRead> {
+    let file = safe_sandbox_file_reader_uncapped(in_root, path).await?;
+    Ok(file.take(crate::MAX_SANDBOX_READ as u64))
+}
+
+pub async fn safe_sandbox_file_writer(
+    in_root: PathBuf,
+    mut path: SandboxPath,
+    reset: bool,
+) -> Result<fs::File> {
+    path = path.absolutify();
+
+    let file = task::spawn_blocking(move || {
+        let root_file = std::fs::File::open(&in_root).context("opening sandbox root directory")?;
+        let fd = rustix::fs::openat2(
+            root_file,
+            path.path(),
+            rustix::fs::OFlags::WRONLY | rustix::fs::OFlags::CREATE | rustix::fs::OFlags::CLOEXEC,
+            rustix::fs::Mode::from_bits(0o644).unwrap(),
+            rustix::fs::ResolveFlags::NO_MAGICLINKS | rustix::fs::ResolveFlags::IN_ROOT,
+        )
+        .with_context(|| {
+            format!(
+                "Safely opening sandbox file path: {} in real-world root {} for writing",
+                path.display(),
+                in_root.display(),
+            )
+        })?;
+        let mut file = std::fs::File::from(fd);
+        if reset {
+            file.set_len(0).context("Truncating sandbox file")?;
+            file.seek(SeekFrom::Start(0))
+                .context("Seeking to start of truncated sandbox file")?;
+        } else {
+            file.seek(SeekFrom::End(0))
+                .context("Seeking to end of non-truncated sandbox file")?;
+        }
+
         anyhow::Ok(fs::File::from_std(file))
     })
     .await
@@ -390,14 +435,18 @@ cd ~
 
 pub async fn truncated_read(
     config: &SandboxConfig,
-    head_size: usize,
-    tail_size: usize,
+    head_lines: usize,
+    tail_lines: usize,
     path: SandboxPath,
 ) -> Result<TruncatedReadRes> {
-    let mut file: fs::File =
-        safe_open_sandbox_file(config.root_dir.clone(), path.clone(), false).await?;
+    let mut file = safe_sandbox_file_reader_uncapped(config.root_dir.clone(), path.clone()).await?;
+    let file_size = file
+        .metadata()
+        .await
+        .context("Reading file metadata")?
+        .len();
 
-    crate::utils::truncated_read(&mut file, head_size, tail_size)
+    crate::utils::truncated_read(&mut file, file_size, head_lines, tail_lines)
         .await
         .context("Reading output file")
 }
@@ -414,8 +463,8 @@ pub async fn run_in_sandbox(
 ) -> Result<(i32, TruncatedReadRes)> {
     let mut cmd = sandboxify_command(config, command, &HashMap::new()).await?;
 
-    let out_file: fs::File =
-        safe_open_sandbox_file(config.root_dir.clone(), out_path.clone(), true).await?;
+    let out_file =
+        safe_sandbox_file_writer(config.root_dir.clone(), out_path.clone(), true).await?;
 
     let std_file: std::fs::File = out_file.into_std().await;
     let fd_out: OwnedFd = std_file.into();
@@ -441,4 +490,95 @@ pub async fn run_in_sandbox(
     let exit_code = status.code().unwrap_or(-1);
 
     Ok((exit_code, read_output))
+}
+
+#[instrument(level = "debug", skip_all, fields(attachment_path = %attachment_path.display()))]
+pub async fn make_sandbox_from_attachment(
+    sandbox_config: &SandboxConfig,
+    attachment_path: &Path,
+) -> Result<SandboxPath> {
+    safe_ensure_sandbox_dir(
+        sandbox_config.root_dir.clone(),
+        SandboxPath::from("attachments"),
+    )
+    .await?;
+
+    let filename = attachment_path
+        .file_name()
+        .context("No file name on saved attachment?")?
+        .to_str()
+        .context("Saved attachment filename has dodgy file name")?;
+    let sandbox_save_path = SandboxPath::new(PathBuf::from("attachments").join(filename));
+
+    let sandbox_writer = safe_sandbox_file_writer(
+        sandbox_config.root_dir.clone(),
+        sandbox_save_path.clone(),
+        true,
+    )
+    .await
+    .context("Opening sandbox file writer to copy attachment to")?;
+
+    let mut attachment_reader = BufReader::new(
+        fs::File::open(&attachment_path)
+            .await
+            .context("Opening attachment path for copying contents to sandbox")?,
+    );
+    let mut buffered_sandbox_writer = BufWriter::new(sandbox_writer);
+    tokio::io::copy(&mut attachment_reader, &mut buffered_sandbox_writer)
+        .await
+        .context("Copying attachment to sandbox")?;
+    buffered_sandbox_writer
+        .flush()
+        .await
+        .context("Flushing sandbox file")?;
+
+    Ok(sandbox_save_path)
+}
+
+#[instrument(level = "debug", skip_all, fields(sandbox_path = %sandbox_path.display()))]
+pub async fn make_attachment_from_sandbox(
+    attachments_dir: &Path,
+    sandbox_config: &SandboxConfig,
+    sandbox_path: SandboxPath,
+) -> Result<PathBuf> {
+    let ext = sandbox_path
+        .extension()
+        .unwrap_or_else(|| OsStr::new("idk"));
+    let id = nanoid::nanoid!(8, &nanoid::alphabet::SAFE);
+    let mut filename = OsString::from(id);
+    filename.push(".");
+    filename.push(ext);
+
+    let attachment_path = attachments_dir.join(PathBuf::from(filename));
+
+    trace!(
+        "Saving sandbox path {} to attachment path {}",
+        sandbox_path.display(),
+        attachment_path.display()
+    );
+
+    let sandbox_reader = safe_sandbox_file_reader(sandbox_config.root_dir.clone(), sandbox_path)
+        .await
+        .context("Opening sandbox file for markdown embed to create attachment")?;
+
+    let attachment_file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&attachment_path)
+        .await
+        .context("Creating attachment file to store markdown attachment")?;
+
+    let mut attachment_writer = BufWriter::new(attachment_file);
+    let mut buffered_sandbox_reader = BufReader::new(sandbox_reader);
+
+    tokio::io::copy(&mut buffered_sandbox_reader, &mut attachment_writer)
+        .await
+        .context("Copying sandbox file to attachment file")?;
+    attachment_writer
+        .flush()
+        .await
+        .context("Flushing attachment file")?;
+
+    Ok(attachment_path)
 }

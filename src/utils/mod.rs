@@ -1,20 +1,15 @@
-use std::{
-    borrow::{Borrow as _, Cow},
-    io::SeekFrom,
-};
+use std::borrow::{Borrow as _, Cow};
 
 use anyhow::{Context as _, Result};
 use serde::{Deserialize, Serialize};
-use tokio::{
-    fs,
-    io::{AsyncReadExt as _, AsyncSeekExt as _},
-};
-use tracing::{instrument, trace};
+use tokio::io::{AsyncRead, AsyncSeek};
+use tracing::instrument;
 
 use crate::messages;
 
 pub mod formats;
 pub mod sandbox;
+mod tail;
 pub mod tooling;
 
 pub enum NotCow<'a, B: Sized + 'a> {
@@ -68,90 +63,44 @@ pub struct TruncatedReadRes {
     pub file_size: u64,
 }
 
-#[instrument(level = "debug", skip(file))]
+#[instrument(
+    level = "debug",
+    skip_all,
+    fields(wanted_head_lines, wanted_tail_lines)
+)]
 pub async fn truncated_read(
-    file: &mut fs::File,
-    wanted_head_chars: usize,
-    wanted_tail_chars: usize,
+    mut file: impl AsyncRead + AsyncSeek + Unpin,
+    file_size: u64,
+    wanted_head_lines: usize,
+    wanted_tail_lines: usize,
 ) -> Result<TruncatedReadRes> {
-    let wanted_full_chars = wanted_head_chars.saturating_add(wanted_tail_chars);
+    let head_lines = tail::head_lines(&mut file, crate::MAX_SANDBOX_READ as u64, wanted_head_lines)
+        .await
+        .context("Reading head lines")?;
+    let head_lines_str = String::from_utf8_lossy(&head_lines);
 
-    // a file is expected to be no longer than 4 x chars in size
-    let full_size = wanted_full_chars.saturating_mul(4);
-    // these may land on boundaries so give them 3 extra bytes as a treat to prevent under-fills
-    let head_size = wanted_head_chars.saturating_mul(4).saturating_add(3);
-    let tail_size = wanted_tail_chars.saturating_mul(4).saturating_add(3);
-
-    let file_size = file.metadata().await?.len();
-
-    trace!("Actual file size: {}", file_size);
-
-    let mut m_fb: Option<Vec<u8>> = None;
-
-    if file_size <= (full_size as u64) {
-        let mut b = Vec::with_capacity(
-            usize::try_from(file_size).context("full_size too large for full head+tail read")?,
-        );
-        // still using take() to avoid memory overflowing in TOCTOU scenarios
-        file.take(file_size as u64).read_to_end(&mut b).await?;
-
-        let s = String::from_utf8_lossy(&b);
-
-        if s.chars().count() > wanted_full_chars {
-            m_fb = Some(b);
-        } else {
-            return Ok(TruncatedReadRes {
-                output: TruncatedReadOutput::Full(s.into_owned()),
-                file_size,
-            });
-        }
+    if (head_lines.len() as u64) >= file_size {
+        return Ok(TruncatedReadRes {
+            output: TruncatedReadOutput::Full(head_lines_str.into_owned()),
+            file_size,
+        });
     }
 
-    trace!("Reading head values");
-
-    let head: String = {
-        if let Some(ref b) = m_fb {
-            String::from_utf8_lossy(b)
-                .chars()
-                .take(wanted_head_chars)
-                .collect()
-        } else {
-            let mut hb = Vec::with_capacity(head_size);
-            file.take(head_size as u64).read_to_end(&mut hb).await?;
-            String::from_utf8_lossy(&hb)
-                .chars()
-                .take(wanted_head_chars)
-                .collect()
-        }
-    };
-
-    trace!("Reading tail values");
-
-    let tail: String = {
-        // can only be pre-filled by full read, which, by definition, is full,
-        // otherwise we read the end of the file
-        let tb = if let Some(b) = m_fb {
-            b
-        } else {
-            let start = file_size.saturating_sub(tail_size as u64);
-            file.seek(SeekFrom::Start(start)).await?;
-            let mut tb = Vec::with_capacity(tail_size);
-            // another take() to guard against flooding memory in TOCTOU scenarios
-            file.take(tail_size as u64).read_to_end(&mut tb).await?;
-            tb
-        };
-
-        let ts = String::from_utf8_lossy(&tb);
-
-        ts.char_indices()
-            .rev()
-            .take(wanted_tail_chars)
-            .last()
-            .map_or_else(String::new, |(i, _)| ts[i..].to_owned())
-    };
+    let tail_lines = tail::tail_lines(
+        &mut file,
+        file_size,
+        crate::MAX_SANDBOX_READ as u64,
+        wanted_tail_lines,
+    )
+    .await
+    .context("Reading tail lines")?;
+    let tail_lines_str = String::from_utf8_lossy(&tail_lines);
 
     Ok(TruncatedReadRes {
-        output: TruncatedReadOutput::Truncated(head, tail),
+        output: TruncatedReadOutput::Truncated(
+            head_lines_str.into_owned(),
+            tail_lines_str.into_owned(),
+        ),
         file_size,
     })
 }

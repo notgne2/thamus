@@ -7,15 +7,16 @@ use anyhow::{Context, Result, bail};
 use futures::StreamExt as _;
 use inotify::{Inotify, WatchMask};
 use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncRead, AsyncReadExt as _, BufReader, BufWriter};
+use tokio::pin;
 use tokio::{fs, io::AsyncReadExt as _, sync::RwLock};
 use tokio_stream::wrappers::ReadDirStream;
 use tracing::{error, info, instrument};
 
+use crate::utils::sandbox::safe_sandbox_file_reader;
 use crate::{
     agent, config_rules, instance, platforms, providers, server,
-    utils::sandbox::{
-        SandboxPath, safe_ensure_sandbox_dir, safe_open_sandbox_file, safe_read_sandbox_dir,
-    },
+    utils::sandbox::{SandboxPath, safe_ensure_sandbox_dir, safe_read_sandbox_dir},
 };
 
 /// Configures data storage
@@ -85,11 +86,12 @@ impl Config {
 
     async fn read_files_to_the_config(
         the_config: &mut serde_json::Value,
-        files: &mut [(OsString, fs::File)],
+        files: &mut [(OsString, impl AsyncRead + Unpin)],
     ) -> Result<()> {
-        for (ext, file) in files {
+        for (ext, file_reader) in files {
             let mut content = String::new();
-            file.read_to_string(&mut content)
+            file_reader
+                .read_to_string(&mut content)
                 .await
                 .context("Reading config file")?;
 
@@ -124,7 +126,7 @@ impl Config {
     }
 
     #[instrument(level = "debug", skip_all)]
-    async fn get_selfserve_files(&self) -> Result<Vec<(OsString, fs::File)>> {
+    async fn get_selfserve_files(&self) -> Result<Vec<(OsString, impl AsyncRead)>> {
         let root = &self.default_agent().sandbox.root_dir;
 
         let selfserve_config_dir = SandboxPath::from("settings");
@@ -143,10 +145,10 @@ impl Config {
                 .extension()
                 .context("Selfserve settings files need to have an extension")?
                 .to_owned();
-            let file = safe_open_sandbox_file(root.clone(), entry, false)
+            let file_reader = safe_sandbox_file_reader(root.clone(), entry)
                 .await
                 .context("Safely opening selfserve settings file")?;
-            files.push((ext, file));
+            files.push((ext, file_reader));
         }
 
         Ok(files)

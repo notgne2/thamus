@@ -5,7 +5,10 @@ use std::{collections::BTreeMap, fmt::Write as _};
 use tracing::{instrument, trace};
 
 use crate::{
-    CommonResources, agent::AgentConfig, db, messages, utils::formats::ext_format_supported,
+    CommonResources,
+    agent::AgentConfig,
+    db, messages,
+    utils::{formats::ext_format_supported, sandbox},
 };
 use formatx::formatx;
 
@@ -123,7 +126,7 @@ pub async fn fix_attachments_for_prompting(
             let mut attachment_strs = Vec::new();
             for a in attachments {
                 let sandbox_save_path =
-                    super::sandbox::make_sandbox_from_attachment(sub_config, &a)
+                    sandbox::make_sandbox_from_attachment(&sub_config.sandbox, &a)
                         .await
                         .context("Making sandbox from attachment")?;
 

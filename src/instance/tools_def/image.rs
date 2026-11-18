@@ -5,13 +5,14 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::json;
 use std::path::PathBuf;
+use tokio::io::Empty;
 
 use crate::CommonResources;
 use crate::agent;
 use crate::config::snapshot_config;
 use crate::providers::generate;
 use crate::utils::sandbox::SandboxPath;
-use crate::utils::sandbox::safe_open_sandbox_file;
+use crate::utils::sandbox::safe_sandbox_file_reader;
 use crate::utils::tooling;
 
 use super::utils::tool_save_attachment;
@@ -89,7 +90,7 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for GenerateIma
         generate::generate_image(
             &self.0.http,
             api_url,
-            &mut [],
+            (&mut []) as &mut [Empty],
             &args.prompt,
             loose_res,
             &mut save_target,
@@ -162,10 +163,9 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for EditImage<C
         let sub_config = &*self.1.get_config().await;
 
         for sandbox_input_path in args.inputs {
-            let sandbox_in_file = safe_open_sandbox_file(
+            let sandbox_in_file = safe_sandbox_file_reader(
                 sub_config.sandbox.root_dir.clone(),
                 SandboxPath::from(sandbox_input_path),
-                false,
             )
             .await?;
             sandbox_in_files.push(sandbox_in_file);

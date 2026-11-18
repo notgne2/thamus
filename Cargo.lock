@@ -6393,6 +6393,7 @@ dependencies = [
  "json-patch",
  "json5",
  "libsqlite3-sys",
+ "memchr",
  "mockall",
  "nanoid",
  "nu-ansi-term",

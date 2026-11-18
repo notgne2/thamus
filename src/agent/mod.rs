@@ -19,10 +19,11 @@ use crate::config::snapshot_config;
 use crate::db;
 use crate::messages;
 use crate::providers::llm;
+use crate::utils::sandbox;
+use crate::utils::sandbox::make_attachment_from_sandbox;
 use crate::utils::{NotCow, tooling};
 
 mod prompt;
-pub mod sandbox;
 mod slots;
 mod utils;
 
@@ -463,10 +464,14 @@ impl Agent {
     ) -> std::result::Result<(), (String, anyhow::Error)> {
         for sandbox_path in utils::extract_markdown_attachments(bot_message) {
             let d = sandbox_path.display().to_string();
-            match sandbox::make_attachment_from_sandbox(config_snapshot, sub_config, sandbox_path)
-                .await
-                .context("Making attachment from markdown embedded sandbox path")
-            {
+            let r = make_attachment_from_sandbox(
+                &config_snapshot.storage.attachments_dir,
+                &sub_config.sandbox,
+                sandbox_path,
+            )
+            .await
+            .context("Making attachment from markdown embedded sandbox path");
+            match r {
                 Err(err) => return Err((d, err)),
                 Ok(attachment_path) => {
                     bot_message

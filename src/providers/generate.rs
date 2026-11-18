@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::{
     fs,
-    io::{AsyncReadExt as _, AsyncWriteExt as _},
+    io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _},
+    pin,
 };
 use tracing::{instrument, trace};
 
@@ -29,7 +30,7 @@ pub async fn generate_song(
     lyrics: &str,
     duration: u16,
 
-    save_to: &mut fs::File,
+    save_to: impl AsyncWrite,
 ) -> anyhow::Result<()> {
     let res = client
         .post(format!("{audio_cpp_uri}/v1/tasks/run"))
@@ -60,6 +61,8 @@ pub async fn generate_song(
         }
     }
 
+    pin!(save_to);
+
     save_to
         .write_all(&audio_bytes)
         .await
@@ -75,16 +78,16 @@ pub async fn generate_image(
     client: &reqwest::Client,
     sd_cpp_uri: &str,
 
-    in_files: &mut [fs::File],
+    in_files: &mut [impl AsyncRead + Unpin],
 
     prompt: &str,
     mut loose_res: Option<(u32, u32)>,
 
-    save_to: &mut fs::File,
+    save_to: impl AsyncWrite,
 ) -> anyhow::Result<()> {
     let mut in_blobs = Vec::new();
 
-    for in_file in in_files.iter_mut() {
+    for in_file in in_files {
         let mut in_blob = Vec::new();
         in_file
             .read_to_end(&mut in_blob)
@@ -145,6 +148,8 @@ pub async fn generate_image(
         .decode(image_base64)
         .context("Failed to decode image base64")?;
 
+    pin!(save_to);
+
     save_to
         .write_all(&image_bytes)
         .await
@@ -167,7 +172,7 @@ pub async fn generate_speech(
 
     words: &str,
 
-    save_to: &mut fs::File,
+    save_to: impl AsyncWrite,
 ) -> anyhow::Result<()> {
     let res = client
         .post(format!("{audio_cpp_uri}/v1/audio/speech"))
@@ -185,7 +190,7 @@ pub async fn generate_speech(
 
     let song_response = res.bytes().await?;
 
-    trace!("Writing finished audio file to {:?}", save_to);
+    pin!(save_to);
 
     save_to
         .write_all(&song_response)

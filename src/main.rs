@@ -31,6 +31,8 @@ pub(crate) struct CommonResources {
     pub lock_notifier: Arc<tokio::sync::Notify>,
 }
 
+pub const MAX_SANDBOX_READ: usize = 10 * 1024 * 1024;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()

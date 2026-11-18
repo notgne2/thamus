@@ -6,24 +6,25 @@ use serde::Deserialize;
 use serde_json::json;
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, SeekFrom};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::agent;
-use crate::agent::sandbox::make_attachment_from_sandbox;
 use crate::config::SharedConfig;
 use crate::config::snapshot_config;
 use crate::utils::TruncatedReadOutput;
 use crate::utils::formats::ext_format_supported;
 use crate::utils::sandbox::SandboxPath;
-use crate::utils::sandbox::safe_open_sandbox_file;
+use crate::utils::sandbox::make_attachment_from_sandbox;
+use crate::utils::sandbox::safe_sandbox_file_reader;
+use crate::utils::sandbox::safe_sandbox_file_writer;
 use crate::utils::sandbox::truncated_read;
 use crate::utils::tooling;
 
 #[derive(Deserialize)]
 pub struct ReadTextFileArgs {
     path: String,
-    head_size: Option<usize>,
-    tail_size: Option<usize>,
+    head_lines: Option<usize>,
+    tail_lines: Option<usize>,
 }
 
 pub struct ReadTextFile<C: agent::AgentConfigSource + Send + Sync>(pub C);
@@ -47,13 +48,13 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for ReadTextFil
                     "type": "string",
                     "description": "Path to file on your computer, either absolute, or relative to your home (/home)"
                 },
-                "head_size": {
+                "head_lines": {
                     "type": "integer",
-                    "description": "Maximum number of characters to return from the head/start of text file (default 1000)"
+                    "description": "Maximum number of lines to return from the head/start of text file (default 35)"
                 },
-                "tail_size": {
+                "tail_lines": {
                     "type": "integer",
-                    "description": "Maximum number of characters to return from the tail/end of text file (default 1000)"
+                    "description": "Maximum number of lines to return from the tail/end of text file (default 35)"
                 },
             },
             "required": ["path"]
@@ -66,27 +67,27 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for ReadTextFil
 
         let sub_config = &*self.0.get_config().await;
 
-        let head_size = args.head_size.unwrap_or(1000).clamp(10, 8000);
-        let tail_size = args.tail_size.unwrap_or(1000).clamp(10, 8000);
+        let head_lines = args.head_lines.unwrap_or(35).clamp(35, 100);
+        let tail_lines = args.tail_lines.unwrap_or(35).clamp(35, 100);
 
         let path = SandboxPath::from(args.path);
 
-        let out_res = truncated_read(&sub_config.sandbox, head_size, tail_size, path).await?;
+        let out_res = truncated_read(&sub_config.sandbox, head_lines, tail_lines, path).await?;
 
         let out = match out_res.output {
             TruncatedReadOutput::Full(s) => {
                 format!(
-                    "[FULL non-truncated file read of {} chars (less than head+tail)]\n\n{}",
-                    s.chars().count(),
+                    "[FULL non-truncated contents of {} lines (less than head+tail)]\n\n{}",
+                    s.lines().count(),
                     s,
                 )
             }
             TruncatedReadOutput::Truncated(head, tail) => {
                 format!(
-                    "[Head/first {} characters of file]\n\n{}\n\n[Tail/last {} characters of file]\n\n{}",
-                    head.chars().count(),
+                    "[Head/first {} lines of file]\n\n{}\n\n[Tail/last {} lines of file]\n\n{}",
+                    head.lines().count(),
                     head,
-                    tail.chars().count(),
+                    tail.lines().count(),
                     tail
                 )
             }
@@ -144,24 +145,19 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for WriteFile<C
         let sub_config = &*self.0.get_config().await;
 
         let append = args.append.unwrap_or(false);
-        let mut file = safe_open_sandbox_file(
+        let mut file_writer = safe_sandbox_file_writer(
             sub_config.sandbox.root_dir.clone(),
             SandboxPath::from(args.path),
-            true,
+            !append,
         )
         .await
         .context("opening sandbox file for writing")?;
 
-        if append {
-            file.seek(SeekFrom::End(0)).await?;
-        } else {
-            file.set_len(0).await?;
-            file.seek(SeekFrom::Start(0)).await?;
-        }
-        file.write_all(args.text.as_bytes())
+        file_writer
+            .write_all(args.text.as_bytes())
             .await
             .context("writing sandbox file")?;
-        file.flush().await.context("flushing sandbox file")?;
+        file_writer.flush().await.context("flushing sandbox file")?;
 
         Ok(("File written".to_string(), vec![]))
     }
@@ -347,30 +343,34 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for EditFile<C>
         let sub_config = &*self.0.get_config().await;
         let sandbox_path = SandboxPath::from(args.path);
 
-        let mut file = safe_open_sandbox_file(
-            sub_config.sandbox.root_dir.clone(),
-            sandbox_path.clone(),
-            false,
-        )
-        .await
-        .context("opening sandbox file for editing")?;
         let mut text = String::new();
-        file.read_to_string(&mut text)
-            .await
-            .context("reading sandbox file for editing")?;
+
+        {
+            let mut file_reader =
+                safe_sandbox_file_reader(sub_config.sandbox.root_dir.clone(), sandbox_path.clone())
+                    .await
+                    .context("opening sandbox file for editing")?;
+
+            file_reader
+                .read_to_string(&mut text)
+                .await
+                .context("reading sandbox file for editing")?;
+        }
 
         apply_edit_sequence(&mut text, &args.edits)?;
 
-        let mut file =
-            safe_open_sandbox_file(sub_config.sandbox.root_dir.clone(), sandbox_path, true)
+        let mut file_writer =
+            safe_sandbox_file_writer(sub_config.sandbox.root_dir.clone(), sandbox_path, true)
                 .await
                 .context("opening sandbox file for writing edits")?;
-        file.set_len(0).await?;
-        file.seek(SeekFrom::Start(0)).await?;
-        file.write_all(text.as_bytes())
+        file_writer
+            .write_all(text.as_bytes())
             .await
             .context("writing edited sandbox file")?;
-        file.flush().await.context("flushing edited sandbox file")?;
+        file_writer
+            .flush()
+            .await
+            .context("flushing edited sandbox file")?;
 
         Ok(("File edited".to_string(), vec![]))
     }
@@ -426,8 +426,12 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for ViewMedia<C
 
         let sub_config = &*self.1.get_config().await;
 
-        let attachment_path =
-            make_attachment_from_sandbox(&config, sub_config, path.clone()).await?;
+        let attachment_path = make_attachment_from_sandbox(
+            &config.storage.attachments_dir,
+            &sub_config.sandbox,
+            path.clone(),
+        )
+        .await?;
 
         Ok(("Media loaded".to_string(), vec![attachment_path]))
     }

@@ -12,13 +12,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU8;
 use tokio::fs::OpenOptions;
-use tokio::io::{BufReader, BufWriter};
+use tokio::io::{AsyncWriteExt as _, BufReader, BufWriter};
 
 use crate::config::SharedConfig;
 use crate::config::snapshot_config;
 use crate::platforms::PlatformInstance;
-use crate::utils::sandbox::SandboxPath;
-use crate::utils::sandbox::safe_open_sandbox_file;
+use crate::utils::sandbox::{SandboxPath, make_attachment_from_sandbox, safe_sandbox_file_reader};
 use crate::utils::tooling;
 use crate::{agent, db};
 
@@ -72,35 +71,16 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for SetAvatar<C
         let config = snapshot_config(&self.0).await;
 
         let sandbox_path = SandboxPath::from(args.path);
-        let ext = sandbox_path
-            .extension()
-            .unwrap_or_else(|| OsStr::new("idk"));
-        let id = nanoid::nanoid!(8, &nanoid::alphabet::SAFE);
-        let mut filename = OsString::from(id);
-        filename.push(".");
-        filename.push(ext);
-
-        let attachment_path = config.storage.attachments_dir.join(PathBuf::from(filename));
 
         let sub_config = &*self.2.get_config().await;
 
-        let sandbox_file =
-            safe_open_sandbox_file(sub_config.sandbox.root_dir.clone(), sandbox_path, false)
-                .await
-                .context("Opening sandbox file for markdown embed to create attachment")?;
-
-        let attachment_file = OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .open(&attachment_path)
-            .await
-            .context("Creating attachment file to store markdown attachment")?;
-
-        let mut reader = BufReader::new(sandbox_file);
-        let mut writer = BufWriter::new(attachment_file);
-
-        tokio::io::copy(&mut reader, &mut writer).await?;
+        let attachment_path = make_attachment_from_sandbox(
+            &config.storage.attachments_dir,
+            &sub_config.sandbox,
+            sandbox_path,
+        )
+        .await
+        .context("Making attachment from sandbox")?;
 
         self.1
             .set_avatar(&attachment_path)

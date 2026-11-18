@@ -22,8 +22,8 @@ Because, I swear, nobody else is putting in **any** effort!
 - - No, like _seriously_, there are **no** invalidations that can happen otherwise 🎉
 - - _Even if you change the prompt_, it is added as a **diff** until the next compaction 🪩
 - **Extremely** low context window overhead 🤏
-- - Seriously, it is tiny compared to others
-- - **All** strings injected into context besides chat messages, are **fully configurable**
+- - Seriously, it is tiny compared to others 🐜
+- - **All** strings injected into context besides chat messages, are **fully configurable** ✉️
 - Background processing / dreams 😴
 - - Ensmallens the last summary, manages memories, and makes new compactions 🧹
 - - This means conversations can go forever without ever waiting for compaction ♾️
@@ -41,6 +41,9 @@ Because, I swear, nobody else is putting in **any** effort!
 - At least moderately decent internal architecture that can be perceived and extended 🧑‍💻
 - - **No** incomprehensible "smoking gun gate is green worth noting load bearing" garbage 😄
 - - You can even read the code. I even wrote it. I even wrote all these stupid emojis 🤣
+- Some semblence of not trying to be a security nightmare 🔒
+- - The agent is given its own sandbox environment 🏖️
+- - and accessing its files is done safely, so a simple symlink doesn't pwn you 🦺
 
 ## I had to build this
 

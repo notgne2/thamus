@@ -12,7 +12,6 @@ use crate::agent;
 use crate::config::SharedConfig;
 use crate::config::snapshot_config;
 use crate::utils::TruncatedReadOutput;
-use crate::utils::formats::ext_format_supported;
 use crate::utils::sandbox::SandboxPath;
 use crate::utils::sandbox::make_attachment_from_sandbox;
 use crate::utils::sandbox::safe_sandbox_file_reader;
@@ -360,18 +359,20 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for EditFile<C>
 
         apply_edit_sequence(&mut text, &args.edits).context("Applying edit sequence")?;
 
-        let mut file_writer =
-            safe_sandbox_file_writer(sub_config.sandbox.root_dir.clone(), sandbox_path, true)
+        {
+            let mut file_writer =
+                safe_sandbox_file_writer(sub_config.sandbox.root_dir.clone(), sandbox_path, true)
+                    .await
+                    .context("Opening sandbox file for writing edits")?;
+            file_writer
+                .write_all(text.as_bytes())
                 .await
-                .context("Opening sandbox file for writing edits")?;
-        file_writer
-            .write_all(text.as_bytes())
-            .await
-            .context("Writing edited sandbox file")?;
-        file_writer
-            .flush()
-            .await
-            .context("Flushing edited sandbox file")?;
+                .context("Writing edited sandbox file")?;
+            file_writer
+                .flush()
+                .await
+                .context("Flushing edited sandbox file")?;
+        }
 
         Ok(("File edited".to_string(), vec![]))
     }
@@ -419,11 +420,17 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for ViewMedia<C
             .to_str()
             .context("File path format not compatible with attachment reading")?;
 
-        if !ext_format_supported(ext) {
+        let config = snapshot_config(&self.0).await;
+
+        if !config
+            .providers
+            .llm
+            .supported_extensions
+            .iter()
+            .any(|e| e == ext)
+        {
             bail!("File type currently not a supported readable attachment");
         }
-
-        let config = snapshot_config(&self.0).await;
 
         let sub_config = &*self.1.get_config().await;
 

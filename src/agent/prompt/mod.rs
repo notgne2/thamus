@@ -1,14 +1,11 @@
 use anyhow::{Context as _, Result};
 use indoc::indoc;
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, fmt::Write as _};
+use std::{collections::BTreeMap, ffi::OsStr, fmt::Write as _};
 use tracing::{instrument, trace};
 
 use crate::{
-    CommonResources,
-    agent::AgentConfig,
-    db, messages,
-    utils::{formats::ext_format_supported, sandbox},
+    CommonResources, agent::AgentConfig, config::snapshot_config, db, messages, utils::sandbox,
 };
 use formatx::formatx;
 
@@ -49,6 +46,7 @@ pub struct PromptConfig {
 #[instrument(level = "trace", skip_all)]
 pub async fn fix_attachments_for_prompting(
     sub_config: &AgentConfig,
+    supported_extensions: &[impl AsRef<str>],
     ctx: &mut Vec<messages::Message>,
 ) -> Result<()> {
     for message in ctx {
@@ -66,9 +64,11 @@ pub async fn fix_attachments_for_prompting(
             messages::MessageEntry::UserMessage(user_message) => {
                 user_message.content.retain(|c| match c {
                     messages::MessageContent::Text(_) => true,
-                    messages::MessageContent::Attachment(a) => a
-                        .extension()
-                        .is_some_and(|e| ext_format_supported(&e.to_string_lossy())),
+                    messages::MessageContent::Attachment(a) => a.extension().is_some_and(|e| {
+                        supported_extensions
+                            .iter()
+                            .any(|ext| OsStr::new(ext.as_ref()) == e)
+                    }),
                 });
 
                 let mut attachment_paths = Vec::new();
@@ -105,7 +105,12 @@ pub async fn fix_attachments_for_prompting(
                 let mut attachment_paths = Vec::new();
 
                 for a in &tool_result.attachments {
-                    attachment_paths.push(a.clone());
+                    if supported_extensions
+                        .iter()
+                        .any(|ext| Some(OsStr::new(ext.as_ref())) == a.extension())
+                    {
+                        attachment_paths.push(a.clone());
+                    }
                 }
 
                 Some((&mut tool_result.result, attachment_paths))
@@ -221,9 +226,19 @@ pub async fn get_prompt(
 
     let mut history = db::history::get_history(&common.pool, id, None).await?;
 
-    fix_attachments_for_prompting(sub_config, &mut history)
-        .await
-        .context("Fixing attachments for prompting")?;
+    let config_snapshot = snapshot_config(&common.config).await;
+
+    fix_attachments_for_prompting(
+        sub_config,
+        config_snapshot
+            .providers
+            .llm
+            .supported_extensions
+            .as_slice(),
+        &mut history,
+    )
+    .await
+    .context("Fixing attachments for prompting")?;
 
     let missing_results = get_missing_tool_call_results(sub_config, &history)
         .context("Getting missing tool call results")?;

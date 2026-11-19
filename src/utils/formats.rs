@@ -63,13 +63,3 @@ pub fn type_for_mime(mime: &str) -> &str {
         mime.split('/').next().unwrap_or("file")
     }
 }
-
-#[must_use]
-pub fn ext_format_supported(ext: &str) -> bool {
-    matches!(
-        ext,
-        // "jpg" | "jpeg" | "png" | "gif" | "webp" | "svg" | "mp3" | "wav" | "ogg" | "flac" | "opus"
-        // "jpg" | "jpeg" | "png" | "gif" | "webp" | "svg" | "pdf"
-        "jpg" | "jpeg" | "png" | "gif" | "svg" | "pdf"
-    )
-}

@@ -3,6 +3,7 @@ use std::borrow::Cow;
 use anyhow::{Context, Result};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
+use serde_inline_default::serde_inline_default;
 use serde_json::{Value, json};
 use std::fmt::Write;
 use thiserror::Error;
@@ -32,6 +33,7 @@ pub struct LlmConstraints {
 
 /// Configuration for LLM
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde_inline_default]
 pub struct LlmConfig {
     /// API key to authenticate to LLM endpoint
     pub api_key: String,
@@ -46,6 +48,9 @@ pub struct LlmConfig {
     /// Perform additional validation that history is perfectly reconstructed
     #[serde(default)]
     pub validate: bool,
+    /// Which file extensions are supported as attachments
+    #[serde_inline_default(vec![String::from("jpg"), String::from("jpeg"), String::from("png"), String::from("gif"), String::from("svg")])]
+    pub supported_extensions: Vec<String>,
 
     /// If you have hacked your chat template to show `shown_tools` rather than tools,
     /// used to make tool diffs work instantly without prompt cache invalidation :)

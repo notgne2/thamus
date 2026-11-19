@@ -9,7 +9,7 @@ use tokio::io::AsyncReadExt as _;
 use tracing::instrument;
 
 use crate::messages;
-use crate::utils::formats::{ext_format_supported, mime_for_ext, type_for_mime};
+use crate::utils::formats::{mime_for_ext, type_for_mime};
 
 #[instrument(level = "trace", skip_all)]
 async fn attachment_to_json(attachment: &Path) -> Result<Option<Value>> {
@@ -19,10 +19,6 @@ async fn attachment_to_json(attachment: &Path) -> Result<Option<Value>> {
             .context("Attachment extension contains non-stringy bytes")?,
         None => "idk",
     };
-
-    if !ext_format_supported(ext) {
-        return Ok(None);
-    }
 
     let mime = mime_for_ext(ext, "");
     let t = type_for_mime(&mime);

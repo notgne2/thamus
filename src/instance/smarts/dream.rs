@@ -188,16 +188,22 @@ impl std::fmt::Display for DreamState {
 async fn estimate_dream_overhead(config: &ConfigSnapshot) -> (u64, String) {
     let mut n = 0;
 
-    let saving_constraints = match &config.instance.smarts.dreaming.saving_constraints {
-        Some(c) => c,
-        None => &config.providers.llm.default_constraints,
-    };
-    let compaction_constraints = match &config.instance.smarts.dreaming.compaction_constraints {
-        Some(c) => c,
-        None => &config.providers.llm.default_constraints,
-    };
+    let saving_constraints = config
+        .instance
+        .smarts
+        .dreaming
+        .saving_constraints
+        .as_ref()
+        .unwrap_or(&config.providers.llm.default_constraints);
+    let compaction_constraints = config
+        .instance
+        .smarts
+        .dreaming
+        .compaction_constraints
+        .as_ref()
+        .unwrap_or(&config.providers.llm.default_constraints);
 
-    n += u64::from(saving_constraints.max_gen) * 10;
+    n += u64::from(saving_constraints.max_gen) * 16;
     n += u64::from(compaction_constraints.max_gen) * 2;
 
     (

@@ -39,6 +39,11 @@
         craneLib = (crane.mkLib pkgs).overrideToolchain (p: toolchain);
 
         src = gitignore.lib.gitignoreSource ./.;
+
+        runtimeDeps = with pkgs; [
+          ffmpeg
+          bubblewrap
+        ];
       in {
         devShell = craneLib.devShell {
           checks = self.checks.${system};
@@ -67,12 +72,8 @@
           buildInputs = with pkgs; [
             openssl
 
-            ffmpeg
-
             libopus
             opusfile
-
-            bubblewrap
           ];
           nativeBuildInputs = with pkgs; [
             libgcc
@@ -80,8 +81,12 @@
             pkg-config
             cmake
 
-            openssl
+            makeWrapper
           ];
+
+          postInstall = ''
+            wrapProgram $out/bin/thamus --prefix LD_LIBRARY_PATH : ${nixpkgs.lib.makeLibraryPath runtimeDeps}
+          '';
         };
       }
     );

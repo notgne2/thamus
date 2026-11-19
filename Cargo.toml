@@ -4,7 +4,7 @@ cargo-features = ["codegen-backend"]
 name = "thamus"
 version = "0.4.0"
 edition = "2024"
-description = "Thamus - A multi-platform AI assistant in Rust"
+description = "Super efficient chatbot \"agent\" which is actually usable"
 license = "AGPL-3.0-only"
 
 [[bin]]
@@ -12,7 +12,7 @@ name = "thamus"
 path = "src/main.rs"
 
 [dependencies]
-tokio = { version = "1.54.1", features = ["full", "rt"] }
+tokio = { version = "1.54.1", features = ["full"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
 anyhow = "1.0.104"
@@ -34,13 +34,10 @@ regex = "1.13.1"
 reqwest = { version = "0.13.5", features = ["multipart"] }
 base64 = "0.23.1"
 nanoid = "0.5.0"
-rmcp = { version = "3.9.0", features = ["client", "transport-streamable-http-client", "transport-streamable-http-client-reqwest", "transport-child-process", "__reqwest"] }
+rmcp = { version = "3.9.0", features = ["client", "transport-streamable-http-client", "transport-streamable-http-client-reqwest", "transport-child-process"] }
 dashmap = "6.2.1"
 inotify = "0.11.5"
 tokio-stream = { version = "0.1.19", features = ["io-util"] }
-# azalea = { git = "https://github.com/azalea-rs/azalea" }
-# azalea-viaversion = { git = "https://github.com/azalea-rs/azalea-viaversion" }
-# bevy_log = "0.19.1"
 formatx = "0.4.2"
 similar = "3.2.1"
 strsim = "0.11"
@@ -64,10 +61,6 @@ indoc = "2.0.8"
 ron = "0.12.3"
 toml = "1.2.1"
 memchr = "2.8.3"
-
-[dev-dependencies]
-tokio-test = "0.4"
-mockall = "0.15.0"
 
 [lints.clippy]
 all = "deny"

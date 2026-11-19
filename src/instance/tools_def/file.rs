@@ -67,8 +67,8 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for ReadTextFil
 
         let sub_config = &*self.0.get_config().await;
 
-        let head_lines = args.head_lines.unwrap_or(35).clamp(35, 100);
-        let tail_lines = args.tail_lines.unwrap_or(35).clamp(35, 100);
+        let head_lines = args.head_lines.unwrap_or(35).clamp(1, 100);
+        let tail_lines = args.tail_lines.unwrap_or(35).clamp(1, 100);
 
         let path = SandboxPath::from(args.path);
 
@@ -77,7 +77,7 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for ReadTextFil
         let out = match out_res.output {
             TruncatedReadOutput::Full(s) => {
                 format!(
-                    "[FULL non-truncated contents of {} lines (less than head+tail)]\n\n{}",
+                    "[Complete contents ({} lines total, less than head+tail)]\n\n{}",
                     s.lines().count(),
                     s,
                 )
@@ -282,7 +282,7 @@ fn apply_edit_sequence(text: &mut String, edits: &[EditFileEdit]) -> Result<()> 
     for (index, edit) in edits.iter().enumerate() {
         replace_unique_whole_lines(text, &edit.old_text, &edit.new_text).with_context(|| {
             format!(
-                "edit {} of {} failed; no changes were written to disk",
+                "Edit {} of {} failed; no changes were written to disk",
                 index + 1,
                 edits.len()
             )
@@ -336,8 +336,9 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for EditFile<C>
     async fn call_json(&self, args: serde_json::Value) -> Result<(String, Vec<PathBuf>)> {
         let args: EditFileArgs =
             serde_json::from_value(args).context("parsing edit_file tool arguments")?;
+
         if args.edits.is_empty() {
-            return Ok(("No edits applied".to_string(), vec![]));
+            return Ok(("No edits supplied".to_string(), vec![]));
         }
 
         let sub_config = &*self.0.get_config().await;
@@ -349,28 +350,28 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for EditFile<C>
             let mut file_reader =
                 safe_sandbox_file_reader(sub_config.sandbox.root_dir.clone(), sandbox_path.clone())
                     .await
-                    .context("opening sandbox file for editing")?;
+                    .context("Opening sandbox file for editing")?;
 
             file_reader
                 .read_to_string(&mut text)
                 .await
-                .context("reading sandbox file for editing")?;
+                .context("Reading sandbox file for editing")?;
         }
 
-        apply_edit_sequence(&mut text, &args.edits)?;
+        apply_edit_sequence(&mut text, &args.edits).context("Applying edit sequence")?;
 
         let mut file_writer =
             safe_sandbox_file_writer(sub_config.sandbox.root_dir.clone(), sandbox_path, true)
                 .await
-                .context("opening sandbox file for writing edits")?;
+                .context("Opening sandbox file for writing edits")?;
         file_writer
             .write_all(text.as_bytes())
             .await
-            .context("writing edited sandbox file")?;
+            .context("Writing edited sandbox file")?;
         file_writer
             .flush()
             .await
-            .context("flushing edited sandbox file")?;
+            .context("Flushing edited sandbox file")?;
 
         Ok(("File edited".to_string(), vec![]))
     }

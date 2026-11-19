@@ -50,6 +50,7 @@
 
           packages = with pkgs; [
             nixd
+            sqlite
           ];
         };
 
@@ -65,8 +66,6 @@
 
           buildInputs = with pkgs; [
             openssl
-
-            sqlite
 
             ffmpeg
 

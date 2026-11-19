@@ -16,8 +16,8 @@ use crate::utils::tooling;
 #[derive(Deserialize)]
 pub struct RunCommandArgs {
     command: String,
-    head_size: Option<usize>,
-    tail_size: Option<usize>,
+    head_lines: Option<usize>,
+    tail_lines: Option<usize>,
     time_limit: Option<u32>,
 }
 
@@ -42,13 +42,13 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for RunCommand<
                     "type": "string",
                     "description": "A full command to run in Bash. Commands are auto-fetched from Nix when used. DO NOT check if they are installed. DO NOT attempt to install things. You MUST just use them, and they will be fetched on the fly. ONLY EVER RUN REAL COMMANDS, NEVER USELESS COMMANDS LIKE ECHOING THINGS TO YOURSELF."
                 },
-                "head_size": {
+                "head_lines": {
                     "type": "integer",
-                    "description": "Maximum number of characters to return from the head/start of the output (default 1000)"
+                    "description": "Maximum number of lines to return from the head/start of the output (default 35)"
                 },
-                "tail_size": {
+                "tail_lines": {
                     "type": "integer",
-                    "description": "Maximum number of characters to return from the tail/end of the output (default 1000)"
+                    "description": "Maximum number of lines to return from the tail/end of the output (default 35)"
                 },
                 "time_limit": {
                     "type": "integer",
@@ -74,8 +74,8 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for RunCommand<
             sandbox_config.time_limit = time_limit;
         }
 
-        let head_size = args.head_size.unwrap_or(1000).clamp(10, 8000);
-        let tail_size = args.tail_size.unwrap_or(1000).clamp(10, 8000);
+        let head_lines = args.head_lines.unwrap_or(35).clamp(1, 100);
+        let tail_lines = args.tail_lines.unwrap_or(35).clamp(1, 100);
 
         let id = nanoid::nanoid!(8, &nanoid::alphabet::SAFE);
         let sandbox_out_path = SandboxPath::new(
@@ -93,8 +93,8 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for RunCommand<
 
         let (exit_code, out_res) = run_in_sandbox(
             &sandbox_config,
-            head_size,
-            tail_size,
+            head_lines,
+            tail_lines,
             sandbox_out_path.clone(),
             &args.command,
         )
@@ -104,19 +104,19 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for RunCommand<
         let out = match out_res.output {
             TruncatedReadOutput::Full(s) => {
                 format!(
-                    "[Exit code {exit_code}]\n[Full output of all {} chars]\n{}",
-                    s.chars().count(),
+                    "[Complete output ({} lines total, less than head+tail)]\n\n{}",
+                    s.lines().count(),
                     s,
                 )
             }
             TruncatedReadOutput::Truncated(head, tail) => {
                 format!(
-                    "[Exit code {exit_code} - output ({} bytes) saved to file: ./{}]\n[Head/first {} characters]\n\n{}\n\n[Tail/last {} characters]\n\n{}",
+                    "[Exit code {exit_code} - output ({} bytes) saved to file: ./{}]\n[Head/first {} lines of output]\n\n{}\n\n[Tail/last {} lines of output]\n\n{}",
                     out_res.file_size,
                     sandbox_out_path.display(),
-                    head.chars().count(),
+                    head.lines().count(),
                     head,
-                    tail.chars().count(),
+                    tail.lines().count(),
                     tail
                 )
             }

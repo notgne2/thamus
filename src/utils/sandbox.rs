@@ -458,8 +458,8 @@ pub async fn truncated_read(
 pub async fn run_in_sandbox(
     config: &SandboxConfig,
 
-    head_size: usize,
-    tail_size: usize,
+    head_lines: usize,
+    tail_lines: usize,
 
     out_path: SandboxPath,
 
@@ -489,7 +489,7 @@ pub async fn run_in_sandbox(
     .context("Timeout running command in sandbox")?
     .context("running bwrap/command")?;
 
-    let read_output = truncated_read(config, head_size, tail_size, out_path).await?;
+    let read_output = truncated_read(config, head_lines, tail_lines, out_path).await?;
 
     let exit_code = status.code().unwrap_or(-1);
 

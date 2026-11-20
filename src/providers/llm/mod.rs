@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use futures::StreamExt;
@@ -7,7 +8,8 @@ use serde_inline_default::serde_inline_default;
 use serde_json::{Value, json};
 use std::fmt::Write;
 use thiserror::Error;
-use tracing::{instrument, trace};
+use tokio::fs;
+use tracing::{error, instrument, trace};
 
 use crate::config::ConfigSnapshot;
 use crate::messages;
@@ -60,11 +62,18 @@ pub struct LlmConfig {
     /// Which file extensions are supported as attachments
     #[serde(default = "default_supported_file_extensions")]
     pub supported_file_extensions: Vec<String>,
+    /// If this endpoint requires tool results to follow directly after calls
+    #[serde(default)]
+    pub results_must_follow_calls: bool,
 
     /// If you have hacked your chat template to show `shown_tools` rather than tools,
     /// used to make tool diffs work instantly without prompt cache invalidation :)
     #[serde(default)]
     pub special_shown_definitions: bool,
+
+    /// Where to optionally write a dump of openai history for debugging
+    #[serde(default)]
+    pub openai_history_dump: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -202,6 +211,25 @@ async fn request_body(
     let openai_history = to_openai::to_openai_messages(history)
         .await
         .map_err(CallError::ToOpenAI)?;
+
+    if let Some(p) = config.openai_history_dump.clone() {
+        let openai_history = openai_history.clone();
+        tokio::spawn(async move {
+            let r = async || {
+                let openai_history_json =
+                    serde_json::to_string(&openai_history).context("Serializing openai history")?;
+                fs::write(p, openai_history_json)
+                    .await
+                    .context("Writing openai history dump")?;
+
+                anyhow::Ok(())
+            };
+
+            if let Err(e) = r().await {
+                error!("Failed to write openai history dump: {e}");
+            }
+        });
+    };
 
     let constraints = constraints_override.unwrap_or(&config.default_constraints);
     let thinking = constraints.max_think > 0;

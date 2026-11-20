@@ -350,7 +350,7 @@ impl Instance {
         Ok(tooling::BotToolSet::create(true, tools))
     }
 
-    #[instrument(level = "trace", skip(self, platform_msg))]
+    #[instrument(level = "trace", skip_all)]
     async fn should_respond(
         &self,
         config_snapshot: &ConfigSnapshot,
@@ -433,6 +433,8 @@ impl Instance {
         config_snapshot: &ConfigSnapshot,
         error: &anyhow::Error,
     ) -> Result<String> {
+        error!("Error handling response: {error:?}");
+
         let public_error_text = formatx!(
             &config_snapshot.instance.messages.public_error,
             error = error
@@ -477,7 +479,7 @@ impl Instance {
                                 "exceed_context_size_error".to_string(),
                             ))
                     {
-                        trace!("Context size exceeded, forcing dream");
+                        warn!("Context size exceeded, forcing dream");
 
                         if let Err(dream_err) = self.trigger_dream(&config_snapshot, None).await {
                             let text = self
@@ -548,7 +550,7 @@ impl Instance {
         Ok(last_usage)
     }
 
-    #[instrument(skip(self, platform_msg))]
+    #[instrument(skip_all)]
     async fn receive(self: &Arc<Self>, platform_msg: &messages::PlatformMessage) -> Result<()> {
         if platform_msg.text.to_lowercase().starts_with("secret ") {
             info!("Skipping handling of secret message");
@@ -657,10 +659,14 @@ impl Instance {
         config_snapshot: &ConfigSnapshot,
         context_size: Option<u32>,
     ) -> Result<()> {
-        let insert_compaction_after =
-            dream::should_dream(&self.common, config_snapshot, &self.id, context_size)
-                .await
-                .context("Getting prompt for dream if should dream")?;
+        let insert_compaction_after = Box::pin(dream::prep_if_should_dream(
+            &self.common,
+            config_snapshot,
+            &self.id,
+            context_size,
+        ))
+        .await
+        .context("Preparing dream if should dream")?;
 
         if let Some(insert_compaction_after) = insert_compaction_after {
             let dream_lock = match self.dream_lock.try_acquire() {

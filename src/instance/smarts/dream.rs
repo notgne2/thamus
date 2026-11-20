@@ -203,8 +203,8 @@ async fn estimate_dream_overhead(config: &ConfigSnapshot) -> (u64, String) {
         .as_ref()
         .unwrap_or(&config.providers.llm.default_constraints);
 
-    // 16 turns or so, 3 times assuming we get 2 CONTINUEs
-    n += u64::from(saving_constraints.max_gen) * (16 * 3);
+    // 16 turns or so, 2 times assuming we get a CONTINUE
+    n += u64::from(saving_constraints.max_gen) * (16 * 2);
     // compaction, once for re-compaction, once for compaction, both reasoning and the compaction itself
     n += u64::from(compaction_constraints.max_gen) * (2 * 2);
 
@@ -226,7 +226,6 @@ async fn estimate_dream_overhead(config: &ConfigSnapshot) -> (u64, String) {
                 .re_compaction
                 .as_str(),
             // assuming 2 CONTINUEs
-            config.instance.smarts.dreaming.messages.saving.as_str(),
             config.instance.smarts.dreaming.messages.saving.as_str(),
             config.instance.smarts.dreaming.messages.saving.as_str(),
             // the compaction
@@ -366,7 +365,7 @@ impl agent::AgentInstructionsSource for &DreamContext {
 }
 
 #[instrument(level = "debug", skip(common, config_snapshot))]
-pub async fn should_dream(
+pub async fn prep_if_should_dream(
     common: &CommonResources,
     config_snapshot: &ConfigSnapshot,
     instance_id: &str,
@@ -389,14 +388,21 @@ pub async fn should_dream(
         Arc::new(AtomicU8::new(0)),
         format!("{instance_id}_dream"),
     );
-    agent.erase_all_history().await?;
-    let (original_len, Some(last_original_message_id)) =
-        agent.copy_from(None, instance_id, true).await?
+    agent
+        .erase_all_history()
+        .await
+        .context("Erasing old dream history")?;
+    let (original_len, Some(last_original_message_id)) = agent
+        .copy_from(None, instance_id, true)
+        .await
+        .context("Copying original history to dream")?
     else {
         bail!("Original instance history has no entries?");
     };
 
-    let mut prompt = Box::pin(agent.get_prompt(&dream_context)).await?;
+    let mut prompt = Box::pin(agent.get_prompt(&dream_context))
+        .await
+        .context("Getting dream prompt")?;
 
     if let Some(context_size) = context_size {
         let dreamable_len = prompt
@@ -439,17 +445,25 @@ pub async fn should_dream(
         &prompt.base,
         &prompt.history,
     )
-    .await?;
+    .await
+    .context("Fitting history for dream")?;
 
     if (u64::from(fit)) < original_len {
-        agent.erase_all_history().await?;
-        let (_entries_copied, Some(last_original_message_id)) =
-            agent.copy_from(Some(fit), instance_id, true).await?
+        agent
+            .erase_all_history()
+            .await
+            .context("Erasing old dream history")?;
+        let (_entries_copied, Some(last_original_message_id)) = agent
+            .copy_from(Some(fit), instance_id, true)
+            .await
+            .context("Copying original history to dream")?
         else {
             bail!("Original instance history has no entries?");
         };
+        debug!("Dreaming only {fit} entries from original history");
         Ok(Some(last_original_message_id))
     } else {
+        debug!("A whole dream is possible");
         Ok(Some(last_original_message_id))
     }
 }

@@ -348,7 +348,7 @@ impl Agent {
                 if let Some(next) = maybe_next {
                     match next {
                         Err(err) => {
-                            error!("LLM responses failed: {err:#?}");
+                            error!("LLM responses failed: {err:?}");
 
                             let sub_config = &ctx.get_config().await;
                             if let Err(err_err) = self
@@ -430,7 +430,11 @@ impl Agent {
             },
         ));
 
-        db::history::insert_after(&self.common.pool, call_message_id, &output_msg).await?;
+        if config_snapshot.providers.llm.results_must_follow_calls {
+            db::history::insert_after(&self.common.pool, call_message_id, &output_msg).await?;
+        } else {
+            db::history::insert(&self.common.pool, &self.id, &output_msg).await?;
+        }
 
         Ok(())
     }

@@ -203,16 +203,21 @@ async fn estimate_dream_overhead(config: &ConfigSnapshot) -> (u64, String) {
         .as_ref()
         .unwrap_or(&config.providers.llm.default_constraints);
 
-    n += u64::from(saving_constraints.max_gen) * 16;
-    n += u64::from(compaction_constraints.max_gen) * 2;
+    // 16 turns or so, 3 times assuming we get 2 CONTINUEs
+    n += u64::from(saving_constraints.max_gen) * (16 * 3);
+    // compaction, once for re-compaction, once for compaction, both reasoning and the compaction itself
+    n += u64::from(compaction_constraints.max_gen) * (2 * 2);
 
     (
         n,
         [
+            // always the intro prompt, behavior, and saving instructions
             config.instance.prompts.intro.as_str(),
-            config.instance.prompts.saving.as_str(),
             config.instance.prompts.behavior.as_str(),
+            config.instance.prompts.saving.as_str(),
+            // dreams always have dream instructions
             config.instance.smarts.dreaming.instructions.as_str(),
+            // the re-compaction
             config
                 .instance
                 .smarts
@@ -220,7 +225,11 @@ async fn estimate_dream_overhead(config: &ConfigSnapshot) -> (u64, String) {
                 .messages
                 .re_compaction
                 .as_str(),
+            // assuming 2 CONTINUEs
             config.instance.smarts.dreaming.messages.saving.as_str(),
+            config.instance.smarts.dreaming.messages.saving.as_str(),
+            config.instance.smarts.dreaming.messages.saving.as_str(),
+            // the compaction
             config.instance.smarts.dreaming.messages.compaction.as_str(),
         ]
         .join("\n"),
@@ -557,20 +566,27 @@ where
 
                             None
                         }
-                        DreamState::Saving => Some(DreamState::Compaction),
+                        DreamState::Saving => {
+                            if final_str.to_uppercase() == "DONE" {
+                                Some(DreamState::Compaction)
+                            } else {
+                                Some(DreamState::Saving)
+                            }
+                        }
                     };
 
-                    debug!("Done with all turns for {dream_state}, and have output of {final_str}",);
+                    debug!(
+                        "Done with all turns for {dream_state}, and have output of {final_str} - starting {active_dream_state:?}"
+                    );
                 }
                 crate::instance::agent::AgentOutput::PartialEntry { usage, .. } => {
                     let Some(usage) = usage else {
                         continue;
                     };
 
-                    let def_constraints = match constraints {
-                        Some(c) => c,
-                        None => &config_snapshot.providers.llm.default_constraints,
-                    };
+                    let def_constraints = constraints
+                        .as_ref()
+                        .unwrap_or(&config_snapshot.providers.llm.default_constraints);
 
                     update_callback(
                         dream_state,

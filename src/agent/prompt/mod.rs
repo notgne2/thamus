@@ -5,7 +5,7 @@ use std::{collections::BTreeMap, ffi::OsStr, fmt::Write as _};
 use tracing::{instrument, trace};
 
 use crate::{
-    CommonResources, agent::AgentConfig, config::snapshot_config, db, messages, utils::sandbox,
+    CommonResources, agent::AgentConfig, config::ConfigSnapshot, db, messages, utils::sandbox,
 };
 use formatx::formatx;
 
@@ -62,6 +62,13 @@ pub async fn fix_attachments_for_prompting(
                 None
             }
             messages::MessageEntry::UserMessage(user_message) => {
+                let mut attachment_paths = Vec::new();
+                for c in &user_message.content {
+                    if let messages::MessageContent::Attachment(a) = c {
+                        attachment_paths.push(a.clone());
+                    }
+                }
+
                 user_message.content.retain(|c| match c {
                     messages::MessageContent::Text(_) => true,
                     messages::MessageContent::Attachment(a) => a.extension().is_some_and(|e| {
@@ -70,13 +77,6 @@ pub async fn fix_attachments_for_prompting(
                             .any(|ext| OsStr::new(ext.as_ref()) == e)
                     }),
                 });
-
-                let mut attachment_paths = Vec::new();
-                for c in &user_message.content {
-                    if let messages::MessageContent::Attachment(a) = c {
-                        attachment_paths.push(a.clone());
-                    }
-                }
 
                 let mut m_t = None;
                 for x in user_message.content.iter_mut().rev() {
@@ -102,18 +102,17 @@ pub async fn fix_attachments_for_prompting(
                 Some((t, attachment_paths.clone()))
             }
             messages::MessageEntry::SystemEntry(messages::SystemEntry::ToolResult(tool_result)) => {
-                let mut attachment_paths = Vec::new();
+                let attachments = tool_result.attachments.clone();
 
-                for a in &tool_result.attachments {
-                    if supported_extensions
-                        .iter()
-                        .any(|ext| Some(OsStr::new(ext.as_ref())) == a.extension())
-                    {
-                        attachment_paths.push(a.clone());
-                    }
-                }
+                tool_result.attachments.retain(|a| {
+                    a.extension().is_some_and(|e| {
+                        supported_extensions
+                            .iter()
+                            .any(|ext| OsStr::new(ext.as_ref()) == e)
+                    })
+                });
 
-                Some((&mut tool_result.result, attachment_paths))
+                Some((&mut tool_result.result, attachments))
             }
             _ => None,
         };
@@ -205,6 +204,7 @@ pub fn get_missing_tool_call_results(
 #[instrument(level = "debug", skip_all)]
 pub async fn get_prompt(
     common: &CommonResources,
+    config_snapshot: &ConfigSnapshot,
     sub_config: &AgentConfig,
     id: &str,
     new_instructions: String,
@@ -226,14 +226,12 @@ pub async fn get_prompt(
 
     let mut history = db::history::get_history(&common.pool, id, None).await?;
 
-    let config_snapshot = snapshot_config(&common.config).await;
-
     fix_attachments_for_prompting(
         sub_config,
         config_snapshot
             .providers
             .llm
-            .supported_extensions
+            .supported_file_extensions
             .as_slice(),
         &mut history,
     )

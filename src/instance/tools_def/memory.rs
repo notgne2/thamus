@@ -7,7 +7,8 @@ use serde_json::json;
 use std::path::PathBuf;
 
 use crate::CommonResources;
-use crate::config::snapshot_config;
+use crate::agent::AgentConfig;
+use crate::config::ConfigSnapshot;
 use crate::db;
 use crate::mem;
 use crate::utils::tooling;
@@ -31,11 +32,15 @@ impl tooling::BotTool for SearchMemory {
         "search_memory"
     }
 
-    fn description(&self) -> String {
+    fn description(&self, _config_snapshot: &ConfigSnapshot, _sub_config: &AgentConfig) -> String {
         "Searches information you have SAVED using a SIMPLE search query. Can only find information that has already been saved (NOT chat logs or messages, IF YOU DO NOT CONSTANTLY SAVE, THIS WILL FAIL YOU). Identical queries ALWAYS return the SAME RESULTS. DO NOT REPEAT SEARCHES. Search BEFORE RUNNING COMMANDS, BEFORE RESPONDING, and BEFORE DOING ANYTHING".to_string()
     }
 
-    async fn parameters(&self) -> serde_json::Value {
+    async fn parameters(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+    ) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -47,22 +52,28 @@ impl tooling::BotTool for SearchMemory {
             "required": ["query"]
         })
     }
-    async fn call_json(&self, args: serde_json::Value) -> Result<(String, Vec<PathBuf>)> {
+    async fn call_json(
+        &self,
+        config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+        args: serde_json::Value,
+    ) -> Result<(String, Vec<PathBuf>)> {
         let args: SearchMemArgs =
             serde_json::from_value(args).context("parsing search_memory tool arguments")?;
 
-        let config = snapshot_config(&self.0.config).await;
-
-        let result: Vec<SearchMemoryResult> =
-            mem::search_recalls(&self.0, &args.query, config.instance.memory.search_limit)
-                .await
-                .context("searching memories")?
-                .into_iter()
-                .map(|x| SearchMemoryResult {
-                    text: x.text,
-                    id: x.id,
-                })
-                .collect();
+        let result: Vec<SearchMemoryResult> = mem::search_recalls(
+            &self.0,
+            &args.query,
+            config_snapshot.instance.memory.search_limit,
+        )
+        .await
+        .context("searching memories")?
+        .into_iter()
+        .map(|x| SearchMemoryResult {
+            text: x.text,
+            id: x.id,
+        })
+        .collect();
         Ok((
             serde_json::to_string(&result).context("serializing search_memory result")?,
             vec![],
@@ -86,12 +97,16 @@ impl tooling::BotTool for SaveMemory {
         "save_memory"
     }
 
-    fn description(&self) -> String {
+    fn description(&self, _config_snapshot: &ConfigSnapshot, _sub_config: &AgentConfig) -> String {
         "Saves information you have learned, which is MANDATORY to use whenever applicable to avoid forgetting. YOU MUST NOT USE THIS WITHOUT SEARCHING MEMORIES FIRST. EVEN IN THE MOST UNLIKELY CIRCUMSTANCES, YOU MUST ALWAYS USE MEMORY SEARCH AND NEVER EVER EVER USE SAVE WITHOUT SEARCHING MEMORY FIRST"
             .to_string()
     }
 
-    async fn parameters(&self) -> serde_json::Value {
+    async fn parameters(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+    ) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -115,7 +130,12 @@ impl tooling::BotTool for SaveMemory {
             "required": ["content", "citation_username", "citation_text"]
         })
     }
-    async fn call_json(&self, args: serde_json::Value) -> Result<(String, Vec<PathBuf>)> {
+    async fn call_json(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+        args: serde_json::Value,
+    ) -> Result<(String, Vec<PathBuf>)> {
         let args: SaveMemArgs =
             serde_json::from_value(args).context("parsing save_memory tool arguments")?;
 
@@ -155,11 +175,15 @@ impl tooling::BotTool for DeleteMemory {
         "delete_memories"
     }
 
-    fn description(&self) -> String {
+    fn description(&self, _config_snapshot: &ConfigSnapshot, _sub_config: &AgentConfig) -> String {
         "Erases saved information. Use when you are CERTAIN it is a duplicate, or 100% sure it violates a rule (if simple INACCURATE, update the save instead)".to_string()
     }
 
-    async fn parameters(&self) -> serde_json::Value {
+    async fn parameters(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+    ) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -175,7 +199,12 @@ impl tooling::BotTool for DeleteMemory {
             "required": ["ids"]
         })
     }
-    async fn call_json(&self, args: serde_json::Value) -> Result<(String, Vec<PathBuf>)> {
+    async fn call_json(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+        args: serde_json::Value,
+    ) -> Result<(String, Vec<PathBuf>)> {
         let args: DeleteMemArgs =
             serde_json::from_value(args).context("parsing delete_memories tool arguments")?;
         for id in args.ids {

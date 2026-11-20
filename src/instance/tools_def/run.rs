@@ -7,6 +7,8 @@ use serde_json::json;
 use std::path::PathBuf;
 
 use crate::agent;
+use crate::agent::AgentConfig;
+use crate::config::ConfigSnapshot;
 use crate::utils::TruncatedReadOutput;
 use crate::utils::sandbox::SandboxPath;
 use crate::utils::sandbox::run_in_sandbox;
@@ -30,11 +32,15 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for RunCommand<
         "execute_shell_command"
     }
 
-    fn description(&self) -> String {
+    fn description(&self, _config_snapshot: &ConfigSnapshot, _sub_config: &AgentConfig) -> String {
         "Executes a shell command on your computer. Share files by embedding them in your response like ![file](path/to/file.ext) relative to your home (/home), or absolute like ![file](/home/my-file.zip). You do NOT need to use this computer when using regular tools, it is separate. ALWAYS PREFER NATIVE TOOLS over running commands. stderr and stdout are both handled together for you. Keep character limits low when possible. NEVER EVER EVER USE THIS TOOL TO RUN A COMMAND IF THERE IS A NATIVE TOOL TO ACCOMPLISH THE SAME THING".to_string()
     }
 
-    async fn parameters(&self) -> serde_json::Value {
+    async fn parameters(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+    ) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -59,11 +65,14 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for RunCommand<
         })
     }
 
-    async fn call_json(&self, args: serde_json::Value) -> Result<(String, Vec<PathBuf>)> {
+    async fn call_json(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        sub_config: &AgentConfig,
+        args: serde_json::Value,
+    ) -> Result<(String, Vec<PathBuf>)> {
         let args: RunCommandArgs =
             serde_json::from_value(args).context("parsing execute_shell_command tool arguments")?;
-
-        let sub_config = &*self.0.get_config().await;
 
         let mut sandbox_config = sub_config.sandbox.clone();
 

@@ -9,7 +9,8 @@ use tokio::io::Empty;
 
 use crate::CommonResources;
 use crate::agent;
-use crate::config::snapshot_config;
+use crate::agent::AgentConfig;
+use crate::config::ConfigSnapshot;
 use crate::providers::generate;
 use crate::utils::sandbox::SandboxPath;
 use crate::utils::sandbox::safe_sandbox_file_reader;
@@ -51,11 +52,15 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for GenerateIma
         "generate_image"
     }
 
-    fn description(&self) -> String {
+    fn description(&self, _config_snapshot: &ConfigSnapshot, _sub_config: &AgentConfig) -> String {
         "Generates an image locally".to_string()
     }
 
-    async fn parameters(&self) -> serde_json::Value {
+    async fn parameters(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+    ) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -71,15 +76,18 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for GenerateIma
             "required": ["prompt"]
         })
     }
-    async fn call_json(&self, args: serde_json::Value) -> Result<(String, Vec<PathBuf>)> {
-        let config = snapshot_config(&self.0.config).await;
-
-        let Some(api_url) = &config.providers.sd_cpp_uri else {
+    async fn call_json(
+        &self,
+        config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+        args: serde_json::Value,
+    ) -> Result<(String, Vec<PathBuf>)> {
+        let Some(api_url) = &config_snapshot.providers.sd_cpp_uri else {
             bail!("Generation has been disabled");
         };
 
         let (mut save_target, msg, attachment) =
-            tool_save_attachment(&config.storage.attachments_dir, "png").await?;
+            tool_save_attachment(&config_snapshot.storage.attachments_dir, "png").await?;
 
         let args: GenerateImageArgs =
             serde_json::from_value(args).context("parsing generate_image tool arguments")?;
@@ -117,11 +125,15 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for EditImage<C
         "edit_image"
     }
 
-    fn description(&self) -> String {
+    fn description(&self, _config_snapshot: &ConfigSnapshot, _sub_config: &AgentConfig) -> String {
         "Edits image(s) using a prompt. Like generate_image, but takes existing image(s) to edit into 1".to_string()
     }
 
-    async fn parameters(&self) -> serde_json::Value {
+    async fn parameters(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+    ) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -145,22 +157,23 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for EditImage<C
             "required": ["prompt", "inputs"]
         })
     }
-    async fn call_json(&self, args: serde_json::Value) -> Result<(String, Vec<PathBuf>)> {
-        let config = snapshot_config(&self.0.config).await;
-
-        let Some(api_url) = &config.providers.sd_cpp_uri else {
+    async fn call_json(
+        &self,
+        config_snapshot: &ConfigSnapshot,
+        sub_config: &AgentConfig,
+        args: serde_json::Value,
+    ) -> Result<(String, Vec<PathBuf>)> {
+        let Some(api_url) = &config_snapshot.providers.sd_cpp_uri else {
             bail!("Generation has been disabled");
         };
 
         let (mut save_target, msg, attachment) =
-            tool_save_attachment(&config.storage.attachments_dir, "png").await?;
+            tool_save_attachment(&config_snapshot.storage.attachments_dir, "png").await?;
 
         let args: EditImageArgs =
             serde_json::from_value(args).context("parsing edit_image tool arguments")?;
 
         let mut sandbox_in_files = Vec::new();
-
-        let sub_config = &*self.1.get_config().await;
 
         for sandbox_input_path in args.inputs {
             let sandbox_in_file = safe_sandbox_file_reader(

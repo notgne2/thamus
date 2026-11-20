@@ -7,7 +7,8 @@ use std::{collections::BTreeMap, path::PathBuf};
 use tracing::trace;
 
 use crate::{
-    config::ConfigSnapshot, messages, providers::llm::LlmTool, utils::sandbox::SandboxConfig,
+    agent::AgentConfig, config::ConfigSnapshot, messages, providers::llm::LlmTool,
+    utils::sandbox::SandboxConfig,
 };
 
 use mcp::McpConfig;
@@ -15,15 +16,28 @@ use mcp::McpConfig;
 #[async_trait]
 pub trait BotTool: Send + Sync {
     fn name(&self) -> &'static str;
-    fn description(&self) -> String;
-    async fn parameters(&self) -> serde_json::Value;
-    async fn call_json(&self, args: serde_json::Value) -> Result<(String, Vec<PathBuf>)>;
+    fn description(&self, config_snapshot: &ConfigSnapshot, sub_config: &AgentConfig) -> String;
+    async fn parameters(
+        &self,
+        config_snapshot: &ConfigSnapshot,
+        sub_config: &AgentConfig,
+    ) -> serde_json::Value;
+    async fn call_json(
+        &self,
+        config_snapshot: &ConfigSnapshot,
+        sub_config: &AgentConfig,
+        args: serde_json::Value,
+    ) -> Result<(String, Vec<PathBuf>)>;
 
-    async fn definition(&self) -> LlmTool {
+    async fn definition(
+        &self,
+        config_snapshot: &ConfigSnapshot,
+        sub_config: &AgentConfig,
+    ) -> LlmTool {
         LlmTool {
             name: self.name().to_string(),
-            description: self.description(),
-            parameters: self.parameters().await,
+            description: self.description(config_snapshot, sub_config),
+            parameters: self.parameters(config_snapshot, sub_config).await,
         }
     }
 }
@@ -51,15 +65,14 @@ impl BotToolSet {
     pub async fn get_definitions(
         &self,
         config_snapshot: &ConfigSnapshot,
-        tooling_config: &ToolingConfig,
-        sandbox_config: &SandboxConfig,
+        sub_config: &AgentConfig,
     ) -> Result<BTreeMap<String, messages::ToolingDefinition>> {
         trace!("Getting tool definitions from bot tools");
 
         let mut self_tools = Vec::new();
 
         for tool in &self.tools {
-            self_tools.push(tool.definition().await);
+            self_tools.push(tool.definition(config_snapshot, sub_config).await);
         }
 
         let mut definitions = BTreeMap::new();
@@ -75,10 +88,13 @@ impl BotToolSet {
         if self.with_mcp {
             trace!("Getting tool definitions from mcp");
 
-            let mcp_definitions =
-                mcp::definitions(config_snapshot, &tooling_config.mcp, sandbox_config)
-                    .await
-                    .context("getting mcp tools")?;
+            let mcp_definitions = mcp::definitions(
+                config_snapshot,
+                &sub_config.tooling.mcp,
+                &sub_config.sandbox,
+            )
+            .await
+            .context("getting mcp tools")?;
 
             for (server_name, definition) in mcp_definitions {
                 definitions.insert(server_name, definition);
@@ -92,22 +108,21 @@ impl BotToolSet {
         &self,
         http: &reqwest::Client,
         config_snapshot: &ConfigSnapshot,
-        tooling_config: &ToolingConfig,
-        sandbox_config: &SandboxConfig,
+        sub_config: &AgentConfig,
         tool_name: &str,
         args: serde_json::Value,
     ) -> Result<(String, Vec<PathBuf>)> {
         if let Some(tool) = self.tools.iter().find(|tool| tool.name() == tool_name) {
             Ok(tool
-                .call_json(args)
+                .call_json(config_snapshot, sub_config, args)
                 .await
                 .with_context(|| format!("Calling tool '{tool_name}'"))?)
         } else if self.with_mcp {
             let mcp_r = mcp::call_tool(
                 http,
                 config_snapshot,
-                &tooling_config.mcp,
-                sandbox_config,
+                &sub_config.tooling.mcp,
+                &sub_config.sandbox,
                 tool_name,
                 &args,
             )

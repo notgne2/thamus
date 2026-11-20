@@ -9,8 +9,8 @@ use std::path::PathBuf;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::agent;
-use crate::config::SharedConfig;
-use crate::config::snapshot_config;
+use crate::agent::AgentConfig;
+use crate::config::ConfigSnapshot;
 use crate::utils::TruncatedReadOutput;
 use crate::utils::sandbox::SandboxPath;
 use crate::utils::sandbox::make_attachment_from_sandbox;
@@ -34,12 +34,16 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for ReadTextFil
         "read_file"
     }
 
-    fn description(&self) -> String {
+    fn description(&self, _config_snapshot: &ConfigSnapshot, _sub_config: &AgentConfig) -> String {
         "Reads any TEXT file from your computer. Keep character limits low when possible"
             .to_string()
     }
 
-    async fn parameters(&self) -> serde_json::Value {
+    async fn parameters(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+    ) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -60,11 +64,14 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for ReadTextFil
         })
     }
 
-    async fn call_json(&self, args: serde_json::Value) -> Result<(String, Vec<PathBuf>)> {
+    async fn call_json(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        sub_config: &AgentConfig,
+        args: serde_json::Value,
+    ) -> Result<(String, Vec<PathBuf>)> {
         let args: ReadTextFileArgs =
             serde_json::from_value(args).context("parsing read_file tool arguments")?;
-
-        let sub_config = &*self.0.get_config().await;
 
         let head_lines = args.head_lines.unwrap_or(35).clamp(1, 100);
         let tail_lines = args.tail_lines.unwrap_or(35).clamp(1, 100);
@@ -111,12 +118,16 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for WriteFile<C
         "write_file"
     }
 
-    fn description(&self) -> String {
+    fn description(&self, _config_snapshot: &ConfigSnapshot, _sub_config: &AgentConfig) -> String {
         "Writes text to a file in the sandbox, replacing its contents by default or appending when requested."
             .to_string()
     }
 
-    async fn parameters(&self) -> serde_json::Value {
+    async fn parameters(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+    ) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -137,11 +148,14 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for WriteFile<C
         })
     }
 
-    async fn call_json(&self, args: serde_json::Value) -> Result<(String, Vec<PathBuf>)> {
+    async fn call_json(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        sub_config: &AgentConfig,
+        args: serde_json::Value,
+    ) -> Result<(String, Vec<PathBuf>)> {
         let args: WriteFileArgs =
             serde_json::from_value(args).context("parsing write_file tool arguments")?;
-
-        let sub_config = &*self.0.get_config().await;
 
         let append = args.append.unwrap_or(false);
         let mut file_writer = safe_sandbox_file_writer(
@@ -296,12 +310,16 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for EditFile<C>
         "edit_file"
     }
 
-    fn description(&self) -> String {
+    fn description(&self, _config_snapshot: &ConfigSnapshot, _sub_config: &AgentConfig) -> String {
         "Applies a sequence of unique whole-line edits in order, allowing surrounding whitespace and small per-line differences."
             .to_string()
     }
 
-    async fn parameters(&self) -> serde_json::Value {
+    async fn parameters(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+    ) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -332,7 +350,12 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for EditFile<C>
         })
     }
 
-    async fn call_json(&self, args: serde_json::Value) -> Result<(String, Vec<PathBuf>)> {
+    async fn call_json(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        sub_config: &AgentConfig,
+        args: serde_json::Value,
+    ) -> Result<(String, Vec<PathBuf>)> {
         let args: EditFileArgs =
             serde_json::from_value(args).context("parsing edit_file tool arguments")?;
 
@@ -340,7 +363,6 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for EditFile<C>
             return Ok(("No edits supplied".to_string(), vec![]));
         }
 
-        let sub_config = &*self.0.get_config().await;
         let sandbox_path = SandboxPath::from(args.path);
 
         let mut text = String::new();
@@ -383,7 +405,7 @@ pub struct ViewMediaArgs {
     path: String,
 }
 
-pub struct ViewMedia<C: agent::AgentConfigSource + Send + Sync>(pub SharedConfig, pub C);
+pub struct ViewMedia<C: agent::AgentConfigSource + Send + Sync>(pub C);
 
 #[async_trait]
 impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for ViewMedia<C> {
@@ -391,11 +413,15 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for ViewMedia<C
         "view_media"
     }
 
-    fn description(&self) -> String {
+    fn description(&self, _config_snapshot: &ConfigSnapshot, _sub_config: &AgentConfig) -> String {
         "Views any image or media from your computer. NEVER use for text files. NEVER use it to view something you received (you CAN already see it)".to_string()
     }
 
-    async fn parameters(&self) -> serde_json::Value {
+    async fn parameters(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+    ) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -408,7 +434,12 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for ViewMedia<C
         })
     }
 
-    async fn call_json(&self, args: serde_json::Value) -> Result<(String, Vec<PathBuf>)> {
+    async fn call_json(
+        &self,
+        config_snapshot: &ConfigSnapshot,
+        sub_config: &AgentConfig,
+        args: serde_json::Value,
+    ) -> Result<(String, Vec<PathBuf>)> {
         let args: ViewMediaArgs =
             serde_json::from_value(args).context("parsing view_media tool arguments")?;
 
@@ -420,22 +451,18 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for ViewMedia<C
             .to_str()
             .context("File path format not compatible with attachment reading")?;
 
-        let config = snapshot_config(&self.0).await;
-
-        if !config
+        if !config_snapshot
             .providers
             .llm
-            .supported_extensions
+            .supported_file_extensions
             .iter()
             .any(|e| e == ext)
         {
             bail!("File type currently not a supported readable attachment");
         }
 
-        let sub_config = &*self.1.get_config().await;
-
         let attachment_path = make_attachment_from_sandbox(
-            &config.storage.attachments_dir,
+            &config_snapshot.storage.attachments_dir,
             &sub_config.sandbox,
             path.clone(),
         )

@@ -6,7 +6,7 @@ use base64::engine::general_purpose::STANDARD;
 use serde_json::{Value, json};
 use tokio::fs;
 use tokio::io::AsyncReadExt as _;
-use tracing::instrument;
+use tracing::{instrument, warn};
 
 use crate::messages;
 use crate::utils::formats::{mime_for_ext, type_for_mime};
@@ -37,15 +37,21 @@ async fn attachment_to_json(attachment: &Path) -> Result<Option<Value>> {
                 "image_url": format!("data:{mime};base64,{encoded}")
             })
         }
-        "audio" => json!({
-            "type": "input_audio",
-            "input_audio": { "data": encoded, "format": ext }
-        }),
-        _ => json!({
-            "type": "input_file",
-            "data": format!("data:{mime};base64,{encoded}"),
-            "format": ext
-        }),
+        "audio" => {
+            warn!("Audio file type: {t}");
+            json!({
+                "type": "input_audio",
+                "input_audio": { "data": encoded, "format": ext }
+            })
+        }
+        _ => {
+            warn!("Unknown file type: {t}");
+            json!({
+                "type": "input_file",
+                "data": format!("data:{mime};base64,{encoded}"),
+                "format": ext
+            })
+        }
     };
 
     Ok(Some(item))

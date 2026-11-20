@@ -5,19 +5,15 @@ use jiff::Unit;
 use jiff::Zoned;
 use serde::Deserialize;
 use serde_json::json;
-use std::ffi::OsStr;
-use std::ffi::OsString;
 use std::fmt::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU8;
-use tokio::fs::OpenOptions;
-use tokio::io::{AsyncWriteExt as _, BufReader, BufWriter};
 
-use crate::config::SharedConfig;
-use crate::config::snapshot_config;
+use crate::agent::AgentConfig;
+use crate::config::ConfigSnapshot;
 use crate::platforms::PlatformInstance;
-use crate::utils::sandbox::{SandboxPath, make_attachment_from_sandbox, safe_sandbox_file_reader};
+use crate::utils::sandbox::{SandboxPath, make_attachment_from_sandbox};
 use crate::utils::tooling;
 use crate::{agent, db};
 
@@ -36,7 +32,6 @@ pub struct SetAvatarArgs {
 
 /// Tool that sets the bot's profile picture from a generated image.
 pub struct SetAvatar<C: agent::AgentConfigSource + Send + Sync>(
-    pub SharedConfig,
     pub Arc<dyn PlatformInstance>,
     pub C,
 );
@@ -47,11 +42,15 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for SetAvatar<C
         "set_avatar"
     }
 
-    fn description(&self) -> String {
+    fn description(&self, _config_snapshot: &ConfigSnapshot, _sub_config: &AgentConfig) -> String {
         "Changes your profile picture/avatar".to_string()
     }
 
-    async fn parameters(&self) -> serde_json::Value {
+    async fn parameters(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+    ) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -64,25 +63,26 @@ impl<C: agent::AgentConfigSource + Send + Sync> tooling::BotTool for SetAvatar<C
         })
     }
 
-    async fn call_json(&self, args: serde_json::Value) -> Result<(String, Vec<PathBuf>)> {
+    async fn call_json(
+        &self,
+        config_snapshot: &ConfigSnapshot,
+        sub_config: &AgentConfig,
+        args: serde_json::Value,
+    ) -> Result<(String, Vec<PathBuf>)> {
         let args: SetAvatarArgs =
             serde_json::from_value(args).context("parsing set_avatar tool arguments")?;
 
-        let config = snapshot_config(&self.0).await;
-
         let sandbox_path = SandboxPath::from(args.path);
 
-        let sub_config = &*self.2.get_config().await;
-
         let attachment_path = make_attachment_from_sandbox(
-            &config.storage.attachments_dir,
+            &config_snapshot.storage.attachments_dir,
             &sub_config.sandbox,
             sandbox_path,
         )
         .await
         .context("Making attachment from sandbox")?;
 
-        self.1
+        self.0
             .set_avatar(&attachment_path)
             .await
             .context("setting avatar")?;
@@ -109,11 +109,15 @@ impl tooling::BotTool for SetStatus {
         "set_status"
     }
 
-    fn description(&self) -> String {
+    fn description(&self, _config_snapshot: &ConfigSnapshot, _sub_config: &AgentConfig) -> String {
         "Changes your profile status message".to_string()
     }
 
-    async fn parameters(&self) -> serde_json::Value {
+    async fn parameters(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+    ) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -126,7 +130,12 @@ impl tooling::BotTool for SetStatus {
         })
     }
 
-    async fn call_json(&self, args: serde_json::Value) -> Result<(String, Vec<PathBuf>)> {
+    async fn call_json(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+        args: serde_json::Value,
+    ) -> Result<(String, Vec<PathBuf>)> {
         let args: SetStatusArgs =
             serde_json::from_value(args).context("parsing set_status tool arguments")?;
 
@@ -151,11 +160,15 @@ impl tooling::BotTool for CheckTime {
         "check_time"
     }
 
-    fn description(&self) -> String {
+    fn description(&self, _config_snapshot: &ConfigSnapshot, _sub_config: &AgentConfig) -> String {
         "Checks the current time/date".to_string()
     }
 
-    async fn parameters(&self) -> serde_json::Value {
+    async fn parameters(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+    ) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {},
@@ -163,7 +176,12 @@ impl tooling::BotTool for CheckTime {
         })
     }
 
-    async fn call_json(&self, _args: serde_json::Value) -> Result<(String, Vec<PathBuf>)> {
+    async fn call_json(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+        _args: serde_json::Value,
+    ) -> Result<(String, Vec<PathBuf>)> {
         let now = Zoned::now().round(Unit::Second)?;
         Ok((
             format!("Current time: {}", now.strftime("%Y-%m-%d %H:%M:%S")),
@@ -185,11 +203,15 @@ impl tooling::BotTool for WebSearch {
         "web_search"
     }
 
-    fn description(&self) -> String {
+    fn description(&self, _config_snapshot: &ConfigSnapshot, _sub_config: &AgentConfig) -> String {
         "Searches the THE INTERNET directly using a normal REAL SEARCH ENGINE, required to research real world topics before responding. DO NOT use to search internal information like memories".to_string()
     }
 
-    async fn parameters(&self) -> serde_json::Value {
+    async fn parameters(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+    ) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -202,7 +224,12 @@ impl tooling::BotTool for WebSearch {
         })
     }
 
-    async fn call_json(&self, args: serde_json::Value) -> Result<(String, Vec<PathBuf>)> {
+    async fn call_json(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+        args: serde_json::Value,
+    ) -> Result<(String, Vec<PathBuf>)> {
         let args: WebSearchArgs =
             serde_json::from_value(args).context("parsing web_search tool arguments")?;
 
@@ -303,11 +330,15 @@ impl tooling::BotTool for WorkLock {
         "work_lock"
     }
 
-    fn description(&self) -> String {
+    fn description(&self, _config_snapshot: &ConfigSnapshot, _sub_config: &AgentConfig) -> String {
         "Forces yourself to continue working/responding, until you manually unlock. Useful if you intend to perform a continuous task".to_string()
     }
 
-    async fn parameters(&self) -> serde_json::Value {
+    async fn parameters(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+    ) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -320,7 +351,12 @@ impl tooling::BotTool for WorkLock {
         })
     }
 
-    async fn call_json(&self, args: serde_json::Value) -> Result<(String, Vec<PathBuf>)> {
+    async fn call_json(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+        args: serde_json::Value,
+    ) -> Result<(String, Vec<PathBuf>)> {
         let work_forever = args
             .get("work_forever")
             .and_then(serde_json::Value::as_bool)

@@ -7,7 +7,8 @@ use serde_json::json;
 use std::path::PathBuf;
 
 use crate::CommonResources;
-use crate::config::snapshot_config;
+use crate::agent::AgentConfig;
+use crate::config::ConfigSnapshot;
 use crate::providers::generate;
 use crate::utils::tooling;
 
@@ -61,11 +62,15 @@ impl tooling::BotTool for GenerateSong {
         "generate_song"
     }
 
-    fn description(&self) -> String {
+    fn description(&self, _config_snapshot: &ConfigSnapshot, _sub_config: &AgentConfig) -> String {
         "Generates an song".to_string()
     }
 
-    async fn parameters(&self) -> serde_json::Value {
+    async fn parameters(
+        &self,
+        _config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+    ) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -85,15 +90,18 @@ impl tooling::BotTool for GenerateSong {
             "required": ["description", "lyrics", "duration"],
         })
     }
-    async fn call_json(&self, args: serde_json::Value) -> Result<(String, Vec<PathBuf>)> {
-        let config = snapshot_config(&self.0.config).await;
-
-        let Some(api_url) = &config.providers.audio_cpp_uri else {
+    async fn call_json(
+        &self,
+        config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+        args: serde_json::Value,
+    ) -> Result<(String, Vec<PathBuf>)> {
+        let Some(api_url) = &config_snapshot.providers.audio_cpp_uri else {
             bail!("Generation has been disabled");
         };
 
         let (mut save_target, msg, attachment) =
-            tool_save_attachment(&config.storage.attachments_dir, "wav").await?;
+            tool_save_attachment(&config_snapshot.storage.attachments_dir, "wav").await?;
 
         let args: GenerateSongArgs =
             serde_json::from_value(args).context("parsing generate_song tool arguments")?;

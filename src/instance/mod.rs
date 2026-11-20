@@ -108,6 +108,7 @@ impl Default for MessagesConfig {
     fn default() -> Self {
         Self {
             public_error: String::from("Error generating response: {error}"),
+            #[allow(clippy::literal_string_with_formatting_args)]
             private_error: String::from(indoc! {"
                 Error in previous turn writing response:
                 {error:#?}
@@ -290,7 +291,6 @@ impl Instance {
         let mut tools: Vec<Box<dyn tooling::BotTool>> = vec![
             Box::new(tools_def::WorkLock(Arc::clone(&self.work_lock_budget))),
             Box::new(tools_def::SetAvatar(
-                Arc::clone(&common.config),
                 self.platform_instance.clone(),
                 instance_agent_config_source.clone(),
             )),
@@ -314,7 +314,6 @@ impl Instance {
                 instance_agent_config_source.clone(),
             )),
             Box::new(tools_def::file::ViewMedia(
-                Arc::clone(&common.config),
                 instance_agent_config_source.clone(),
             )),
         ];
@@ -354,13 +353,12 @@ impl Instance {
     #[instrument(level = "trace", skip(self, platform_msg))]
     async fn should_respond(
         &self,
+        config_snapshot: &ConfigSnapshot,
         platform_msg: &messages::PlatformMessage,
     ) -> anyhow::Result<bool> {
         if platform_msg.text == "norespond" {
             return Ok(false);
         }
-
-        let config_snapshot = snapshot_config(&self.common.config).await;
 
         for mention in &platform_msg.mentions {
             if mention.name
@@ -407,11 +405,10 @@ impl Instance {
 
     async fn make_user_message(
         &self,
+        config_snapshot: &ConfigSnapshot,
         platform_msg: &messages::PlatformMessage,
     ) -> Result<messages::UserMessage> {
         let mut content = vec![];
-
-        let config_snapshot = snapshot_config(&self.common.config).await;
 
         for received_attachment in &platform_msg.attachments {
             let attachment_path = received_attachment
@@ -482,7 +479,7 @@ impl Instance {
                     {
                         trace!("Context size exceeded, forcing dream");
 
-                        if let Err(dream_err) = self.trigger_dream(None).await {
+                        if let Err(dream_err) = self.trigger_dream(&config_snapshot, None).await {
                             let text = self
                                 .handle_response_error(
                                     &config_snapshot,
@@ -558,14 +555,16 @@ impl Instance {
             return Ok(());
         }
 
+        let config_snapshot = snapshot_config(&self.common.config).await;
+
         let msg = messages::MessageEntry::UserMessage(
-            self.make_user_message(platform_msg)
+            self.make_user_message(&config_snapshot, platform_msg)
                 .await
                 .context("Making user message")?,
         );
 
         if !self
-            .should_respond(platform_msg)
+            .should_respond(&config_snapshot, platform_msg)
             .await
             .context("Checking should respond")?
         {
@@ -581,7 +580,7 @@ impl Instance {
             &self.common,
             &self.id,
             platform_msg,
-            &self.common.config.read().await.instance.smarts.infusion,
+            &config_snapshot.instance.smarts.infusion,
         )
         .await
         .context("Creating infusion message")?
@@ -605,7 +604,10 @@ impl Instance {
 
             let self_ = Arc::clone(self);
             task::spawn(async move {
-                if let Err(e) = self_.trigger_dream(Some(total_tokens)).await {
+                if let Err(e) = self_
+                    .trigger_dream(&config_snapshot, Some(total_tokens))
+                    .await
+                {
                     error!("Failed to passively dream: {e:#?}");
                 }
             });
@@ -650,11 +652,13 @@ impl Instance {
     }
 
     #[instrument(level = "trace", skip_all)]
-    async fn trigger_dream(&self, context_size: Option<u32>) -> Result<()> {
-        let config_snapshot = snapshot_config(&self.common.config).await;
-
+    async fn trigger_dream(
+        &self,
+        config_snapshot: &ConfigSnapshot,
+        context_size: Option<u32>,
+    ) -> Result<()> {
         let insert_compaction_after =
-            dream::should_dream(&self.common, &config_snapshot, &self.id, context_size)
+            dream::should_dream(&self.common, config_snapshot, &self.id, context_size)
                 .await
                 .context("Getting prompt for dream if should dream")?;
 
@@ -677,7 +681,7 @@ impl Instance {
 
             let r = Box::pin(smarts::dream::run_dream(
                 self.common.clone(),
-                &config_snapshot,
+                config_snapshot,
                 &self.id,
                 insert_compaction_after,
                 |dream_state, pct| {

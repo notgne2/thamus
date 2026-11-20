@@ -7,7 +7,6 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use tokio::select;
 use tokio::sync::{Notify, RwLock};
 use tokio::task;
-use tracing::warn;
 use tracing::{debug, error, info, instrument, trace};
 
 use crate::config::ConfigSnapshot;

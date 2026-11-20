@@ -7,9 +7,8 @@ use anyhow::{Context, Result, bail};
 use futures::StreamExt as _;
 use inotify::{Inotify, WatchMask};
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncRead, AsyncReadExt as _, BufReader, BufWriter};
-use tokio::pin;
-use tokio::{fs, io::AsyncReadExt as _, sync::RwLock};
+use tokio::io::{AsyncRead, AsyncReadExt as _};
+use tokio::{fs, sync::RwLock};
 use tokio_stream::wrappers::ReadDirStream;
 use tracing::{error, info, instrument};
 
@@ -230,7 +229,7 @@ impl Config {
     }
 
     #[instrument(level = "debug", skip_all)]
-    pub async fn watch(inst: Arc<RwLock<Arc<Self>>>) -> Result<()> {
+    pub async fn watch(shared_config: Arc<RwLock<Arc<Self>>>) -> Result<()> {
         let inotify = Inotify::init().expect("Failed to initialize inotify");
 
         let mut watches = inotify.watches();
@@ -240,7 +239,7 @@ impl Config {
         )?;
 
         {
-            let config_snapshot = snapshot_config(&inst).await;
+            let config_snapshot = snapshot_config(&shared_config).await;
             let selfserve_config_file = config_snapshot
                 .default_agent()
                 .sandbox
@@ -261,7 +260,7 @@ impl Config {
 
             match Self::load_full().await {
                 Ok(config) => {
-                    let mut c = inst.write().await;
+                    let mut c = shared_config.write().await;
                     *c = Arc::new(config);
                     drop(c);
                 }

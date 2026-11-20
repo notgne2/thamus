@@ -31,9 +31,18 @@ pub struct LlmConstraints {
     pub max_think: u32,
 }
 
+fn default_supported_file_extensions() -> Vec<String> {
+    vec![
+        String::from("jpg"),
+        String::from("jpeg"),
+        String::from("png"),
+        String::from("gif"),
+        String::from("svg"),
+    ]
+}
+
 /// Configuration for LLM
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde_inline_default]
 pub struct LlmConfig {
     /// API key to authenticate to LLM endpoint
     pub api_key: String,
@@ -49,8 +58,8 @@ pub struct LlmConfig {
     #[serde(default)]
     pub validate: bool,
     /// Which file extensions are supported as attachments
-    #[serde_inline_default(vec![String::from("jpg"), String::from("jpeg"), String::from("png"), String::from("gif"), String::from("svg")])]
-    pub supported_extensions: Vec<String>,
+    #[serde(default = "default_supported_file_extensions")]
+    pub supported_file_extensions: Vec<String>,
 
     /// If you have hacked your chat template to show `shown_tools` rather than tools,
     /// used to make tool diffs work instantly without prompt cache invalidation :)
@@ -243,14 +252,16 @@ async fn request_body(
             if let Some(definition_instructions) = &definition.instructions {
                 let prompt_instructions = prompt_instructions.to_mut();
 
-                let mut tool_name_list = String::new();
-                for tool in &definition.tools {
-                    let _ = write!(tool_name_list, ",{}", tool.name);
-                }
+                let tool_name_list_str = definition
+                    .tools
+                    .iter()
+                    .map(|t| t.name.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ");
 
                 let _ = write!(
                     prompt_instructions,
-                    "\n\nInstructions for `{name}` tools ({tool_name_list}):\n{definition_instructions}",
+                    "\n\nInstructions for `{name}` tools ({tool_name_list_str}):\n{definition_instructions}",
                 );
             }
         }

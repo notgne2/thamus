@@ -1,4 +1,4 @@
-use crate::{CommonResources, agent::AgentConfig, config::snapshot_config, db};
+use crate::{CommonResources, agent::AgentConfig, db, providers::llm::LlmConfig};
 use anyhow::{Context as _, Result};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace};
@@ -17,6 +17,7 @@ pub async fn release_slot(common: &CommonResources, id_slot: u8) -> Result<()> {
 
 pub async fn get_slot(
     common: &CommonResources,
+    llm_config: &LlmConfig,
     sub_config: &AgentConfig,
     id: &str,
     is_dream: bool,
@@ -27,8 +28,6 @@ pub async fn get_slot(
         debug!("No slots configured for this instance type, assigning 0 without checking");
         return Ok(0);
     }
-
-    let config_snapshot = snapshot_config(&common.config).await;
 
     let (slot, last_was_dream, last_instance_id) = db::slots::acquire_slot(
         &common.pool,
@@ -54,10 +53,7 @@ pub async fn get_slot(
         client
             .post(format!(
                 "{}/slots/{}?action=save",
-                config_snapshot
-                    .providers
-                    .llm
-                    .base_url,
+                llm_config.base_url,
                 slot
             ))
             .json(&serde_json::json!({"filename": format!("{}_{}.bin", last_instance_id, if last_was_dream { "dream" } else { "agent" })}))
@@ -70,10 +66,7 @@ pub async fn get_slot(
         client
             .post(format!(
                 "{}/slots/{}?action=restore",
-                config_snapshot
-                    .providers
-                    .llm
-                    .base_url,
+                llm_config.base_url,
                 slot
             ))
             .json(&serde_json::json!({"filename": format!("{}_{}.bin", id, if is_dream { "dream" } else { "agent" })}))

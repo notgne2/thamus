@@ -7,7 +7,8 @@ use serde_json::json;
 use std::path::PathBuf;
 
 use crate::CommonResources;
-use crate::config::snapshot_config;
+use crate::agent::AgentConfig;
+use crate::config::ConfigSnapshot;
 use crate::providers::generate;
 use crate::utils::tooling;
 
@@ -28,13 +29,15 @@ impl tooling::BotTool for GenerateSpeech {
         "generate_speech"
     }
 
-    fn description(&self) -> String {
+    fn description(&self, _config_snapshot: &ConfigSnapshot, _sub_config: &AgentConfig) -> String {
         "Generates speech (NEVER songs). This is JUST a pure text-to-speech which uses custom voices. NO ACTIONS, SOUNDS, SECTIONS, OR SONGS".to_string()
     }
 
-    async fn parameters(&self) -> serde_json::Value {
-        let config_snapshot = snapshot_config(&self.0.config).await;
-
+    async fn parameters(
+        &self,
+        config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+    ) -> serde_json::Value {
         let voice_names = config_snapshot
             .instance
             .voice
@@ -78,9 +81,12 @@ impl tooling::BotTool for GenerateSpeech {
             "required": ["voice", "words", "model"],
         })
     }
-    async fn call_json(&self, args: serde_json::Value) -> Result<(String, Vec<PathBuf>)> {
-        let config_snapshot = snapshot_config(&self.0.config).await;
-
+    async fn call_json(
+        &self,
+        config_snapshot: &ConfigSnapshot,
+        _sub_config: &AgentConfig,
+        args: serde_json::Value,
+    ) -> Result<(String, Vec<PathBuf>)> {
         let Some(api_url) = &config_snapshot.providers.audio_cpp_uri else {
             bail!("Generation has been disabled");
         };

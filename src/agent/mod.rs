@@ -19,7 +19,6 @@ use crate::config::snapshot_config;
 use crate::db;
 use crate::messages;
 use crate::providers::llm;
-use crate::utils::sandbox;
 use crate::utils::sandbox::make_attachment_from_sandbox;
 use crate::utils::{NotCow, tooling};
 
@@ -293,9 +292,17 @@ impl Agent {
         };
 
         let sub_config = ctx.get_config().await.clone();
-        let id_slot = slots::get_slot(&self.common, &sub_config, &self.id, sub_config.is_dream)
-            .await
-            .context("Failed to get slot for responding")?;
+        let config_snapshot = snapshot_config(&self.common.config).await;
+
+        let id_slot = slots::get_slot(
+            &self.common,
+            &config_snapshot.providers.llm,
+            &sub_config,
+            &self.id,
+            sub_config.is_dream,
+        )
+        .await
+        .context("Failed to get slot for responding")?;
 
         let output_stream = try_stream! {
             let responses_stream = tokio::select! {
@@ -395,8 +402,7 @@ impl Agent {
             .call(
                 &self.common.http,
                 config_snapshot,
-                &sub_config.tooling,
-                &sub_config.sandbox,
+                sub_config,
                 &tool_call.tool_name,
                 parsed_tool_input,
             )
@@ -615,7 +621,7 @@ impl Agent {
         instructions: String,
     ) -> Result<messages::Prompt> {
         let definitions = toolset
-            .get_definitions(config_snapshot, &sub_config.tooling, &sub_config.sandbox)
+            .get_definitions(config_snapshot, sub_config)
             .await
             .context("Getting definitions")?;
 
@@ -645,6 +651,7 @@ impl Agent {
 
         prompt::get_prompt(
             &self.common,
+            config_snapshot,
             sub_config,
             &self.id,
             instructions,

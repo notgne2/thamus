@@ -37,7 +37,7 @@ pub const MAX_SANDBOX_READ: usize = 10 * 1024 * 1024;
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().pretty())
-        .with(console_subscriber::spawn())
+        // .with(console_subscriber::spawn())
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("thamus=info")))
         .init();
 

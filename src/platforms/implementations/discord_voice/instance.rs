@@ -1,8 +1,8 @@
 use crate::providers::generate::decode_speech;
+use crate::utils::spawn_named;
 use dashmap::DashMap;
 use serenity::all::{GuildId, UserId};
 use std::collections::HashMap;
-use std::io::SeekFrom;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,7 +16,6 @@ use serenity::http::Http;
 use songbird::tracks::TrackHandle;
 use std::fmt::Write as _;
 use tokio::fs::OpenOptions;
-use tokio::io::AsyncSeekExt;
 use tokio::sync::{Mutex, broadcast};
 use tracing::{debug, error, info, trace, warn};
 
@@ -691,7 +690,7 @@ impl songbird::EventHandler for Receiver {
                                 .get(&other)
                                 .map(|v| v.clone());
                             let tx = self.inner.message_tx.clone();
-                            tokio::spawn({
+                            spawn_named("flush_pcm", {
                                 let audio_cpp_uri = audio_cpp_uri.clone();
                                 let client = self.inner.http.clone();
                                 async move {
@@ -737,7 +736,7 @@ impl songbird::EventHandler for Receiver {
                         .get(&ssrc)
                         .map(|v| v.clone());
                     let tx = self.inner.message_tx.clone();
-                    tokio::spawn({
+                    spawn_named("flush_pcm", {
                         let audio_cpp_uri = audio_cpp_uri.clone();
                         let client = self.inner.http.clone();
                         async move {

@@ -4,7 +4,6 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use serde_inline_default::serde_inline_default;
 use serde_json::{Value, json};
 use std::fmt::Write;
 use thiserror::Error;
@@ -13,6 +12,7 @@ use tracing::{error, instrument, trace};
 
 use crate::config::ConfigSnapshot;
 use crate::messages;
+use crate::utils::spawn_named;
 
 mod from_openai;
 pub mod openai;
@@ -214,7 +214,7 @@ async fn request_body(
 
     if let Some(p) = config.openai_history_dump.clone() {
         let openai_history = openai_history.clone();
-        tokio::spawn(async move {
+        spawn_named("openai_history_dump", async move {
             let r = async || {
                 let openai_history_json =
                     serde_json::to_string(&openai_history).context("Serializing openai history")?;
@@ -229,7 +229,7 @@ async fn request_body(
                 error!("Failed to write openai history dump: {e}");
             }
         });
-    };
+    }
 
     let constraints = constraints_override.unwrap_or(&config.default_constraints);
     let thinking = constraints.max_think > 0;

@@ -6,11 +6,11 @@ use backon::Retryable;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use tokio::select;
 use tokio::sync::{Notify, RwLock};
-use tokio::task;
 use tracing::{debug, error, info, instrument, trace};
 
 use crate::config::ConfigSnapshot;
 use crate::instance::InstanceProps;
+use crate::utils::spawn_named;
 use crate::{
     CommonResources,
     config::Config,
@@ -43,7 +43,7 @@ impl Thamus {
             let common = common.clone();
             let config_snapshot = config_snapshot.clone();
 
-            tokio::spawn(async move {
+            spawn_named("run_platform", async move {
                 let x = || Self::run_platform(&common, &config_snapshot, &platform);
                 // never returns. no max times.
                 let _ = x
@@ -67,7 +67,7 @@ impl Thamus {
         config_snapshot: &ConfigSnapshot,
         platform: &Arc<dyn Platform>,
     ) -> Result<!> {
-        let run_instances = tokio::spawn({
+        let run_instances = spawn_named("run_platform_instances", {
             let platform = platform.clone();
             let common = common.clone();
 
@@ -110,7 +110,7 @@ impl Thamus {
         platform_instance: Arc<dyn PlatformInstance>,
         props: InstanceProps,
     ) {
-        task::spawn({
+        spawn_named("launch_instance", {
             async move {
                 let x = || Instance::run(platform_instance.clone(), common.clone(), props.clone());
                 let _ = x
@@ -158,7 +158,10 @@ pub async fn run_bot(database: PathBuf) -> Result<()> {
 
     {
         let shared_config = Arc::clone(&shared_config);
-        task::spawn(async move { Config::watch(shared_config).await });
+        spawn_named(
+            "watch_config",
+            async move { Config::watch(shared_config).await },
+        );
     }
 
     load_sqlite_vec();
@@ -194,7 +197,7 @@ pub async fn run_bot(database: PathBuf) -> Result<()> {
         lock_notifier: Arc::new(Notify::new()),
     };
 
-    tokio::spawn({
+    spawn_named("server_serve", {
         let common = common.clone();
         async move {
             if let Err(e) = crate::server::serve(&common).await {

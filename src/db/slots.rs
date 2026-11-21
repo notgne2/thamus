@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use anyhow::Context as _;
-use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use tokio::sync::Notify;
 use tracing::{instrument, trace};

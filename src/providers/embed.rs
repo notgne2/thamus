@@ -1,8 +1,8 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
-use crate::{CommonResources, config::snapshot_config};
+use crate::CommonResources;
 
 /// Configures vector embeddings
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,14 +25,12 @@ struct EmbeddingData {
     embedding: Vec<f64>,
 }
 
-#[instrument(level = "debug", skip(common, content))]
-pub async fn embed(common: &CommonResources, content: &str) -> Result<Vec<f64>> {
-    let config = snapshot_config(&common.config).await;
-
-    let Some(embed_config) = &config.providers.embed else {
-        bail!("Embedding disabled");
-    };
-
+#[instrument(level = "debug", skip_all, fields(content))]
+pub async fn embed(
+    common: &CommonResources,
+    embed_config: &EmbedConfig,
+    content: &str,
+) -> Result<Vec<f64>> {
     let url = format!(
         "{}/v1/embeddings",
         embed_config.base_url.trim_end_matches('/')

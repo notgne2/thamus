@@ -400,7 +400,7 @@ pub async fn prep_if_should_dream(
         bail!("Original instance history has no entries?");
     };
 
-    let mut prompt = Box::pin(agent.get_prompt(&dream_context))
+    let mut prompt = Box::pin(agent.get_prompt(&dream_context, config_snapshot))
         .await
         .context("Getting dream prompt")?;
 
@@ -449,19 +449,22 @@ pub async fn prep_if_should_dream(
     .context("Fitting history for dream")?;
 
     if (u64::from(fit)) < original_len {
-        agent
-            .erase_all_history()
-            .await
-            .context("Erasing old dream history")?;
-        let (_entries_copied, Some(last_original_message_id)) = agent
-            .copy_from(Some(fit), instance_id, true)
-            .await
-            .context("Copying original history to dream")?
-        else {
-            bail!("Original instance history has no entries?");
-        };
-        debug!("Dreaming only {fit} entries from original history");
-        Ok(Some(last_original_message_id))
+        Box::pin(async {
+            agent
+                .erase_all_history()
+                .await
+                .context("Erasing old dream history")?;
+            let (_entries_copied, Some(last_original_message_id)) = agent
+                .copy_from(Some(fit), instance_id, true)
+                .await
+                .context("Copying original history to dream")?
+            else {
+                bail!("Original instance history has no entries?");
+            };
+            debug!("Dreaming only {fit} entries from original history");
+            Ok(Some(last_original_message_id))
+        })
+        .await
     } else {
         debug!("A whole dream is possible");
         Ok(Some(last_original_message_id))
@@ -530,11 +533,16 @@ where
             dream_state_blurb.clone(),
         ));
 
-        let s =
-            Box::pin(agent.respond(&dream_context, constraints.as_ref(), dream_state_msg, true))
-                .await
-                .context("Responding in dream")?
-                .context("Dream responses should be forced")?;
+        let s = Box::pin(agent.respond(
+            &dream_context,
+            config_snapshot,
+            constraints.as_ref(),
+            dream_state_msg,
+            true,
+        ))
+        .await
+        .context("Responding in dream")?
+        .context("Dream responses should be forced")?;
         tokio::pin!(s);
 
         while let Some(r) = s.next().await {

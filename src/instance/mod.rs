@@ -11,7 +11,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU8;
 use tokio::sync::{Semaphore, TryAcquireError};
-use tokio::task::{self};
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::CommonResources;
@@ -22,7 +21,7 @@ use crate::instance::smarts::dream;
 use crate::messages;
 use crate::platforms::{PartialUpdate, PlatformInstance};
 use crate::providers::llm;
-use crate::utils::{NotCow, tooling};
+use crate::utils::{NotCow, spawn_named, tooling};
 
 mod instructions;
 mod smarts;
@@ -360,14 +359,13 @@ impl Instance {
             return Ok(false);
         }
 
+        let username = self
+            .platform_instance
+            .get_username()
+            .await
+            .context("Getting username")?;
         for mention in &platform_msg.mentions {
-            if mention.name
-                == self
-                    .platform_instance
-                    .get_username()
-                    .await
-                    .context("Getting username")?
-            {
+            if mention.name == username {
                 return Ok(true);
             }
         }
@@ -453,8 +451,16 @@ impl Instance {
     }
 
     #[instrument(skip_all)]
-    async fn respond(self: &Arc<Self>, msg: messages::MessageEntry) -> Result<Option<u32>> {
-        let Some(s) = Box::pin(self.agent.respond(self.as_ref(), None, msg.clone(), false))
+    async fn respond(
+        self: &Arc<Self>,
+        config_snapshot: &ConfigSnapshot,
+        msg: messages::MessageEntry,
+    ) -> Result<Option<u32>> {
+        let Some(s) =
+            Box::pin(
+                self.agent
+                    .respond(self.as_ref(), config_snapshot, None, msg.clone(), false),
+            )
             .await
             .context("Starting response stream")?
         else {
@@ -481,7 +487,9 @@ impl Instance {
                     {
                         warn!("Context size exceeded, forcing dream");
 
-                        if let Err(dream_err) = self.trigger_dream(&config_snapshot, None).await {
+                        if let Err(dream_err) =
+                            Box::pin(self.trigger_dream(&config_snapshot, None)).await
+                        {
                             let text = self
                                 .handle_response_error(
                                     &config_snapshot,
@@ -494,7 +502,7 @@ impl Instance {
                                 .context("sending final bot dream error message")?;
                         }
 
-                        return Box::pin(Arc::clone(self).respond(msg)).await;
+                        return Box::pin(Arc::clone(self).respond(&config_snapshot, msg)).await;
                     }
 
                     let text = self
@@ -531,7 +539,7 @@ impl Instance {
                 }
                 agent::AgentOutput::PartialEntry { entry_kind, usage } => {
                     let platform_instance = Arc::clone(&self.platform_instance);
-                    task::spawn(async move {
+                    spawn_named("send_partial", async move {
                         if let Err(e) = platform_instance
                             .send_partial(PartialUpdate::Real(&entry_kind, usage.as_ref()))
                             .await
@@ -580,9 +588,10 @@ impl Instance {
 
         if let Some(infusion_msg) = smarts::infusion::create_infusion_message(
             &self.common,
+            &config_snapshot.instance.smarts.infusion,
+            config_snapshot.providers.embed.as_ref(),
             &self.id,
             platform_msg,
-            &config_snapshot.instance.smarts.infusion,
         )
         .await
         .context("Creating infusion message")?
@@ -593,7 +602,7 @@ impl Instance {
                 .context("Inserting infusion message")?;
         }
 
-        let respond_r = Box::pin(self.respond(msg)).await;
+        let respond_r = Box::pin(self.respond(&config_snapshot, msg)).await;
 
         if let Err(err) = self.platform_instance.set_working(false).await {
             error!("Failed to set working state on platform: {err:#?}");
@@ -605,7 +614,7 @@ impl Instance {
             trace!("Got total tokens after response: {total_tokens}");
 
             let self_ = Arc::clone(self);
-            task::spawn(async move {
+            spawn_named("maybe_trigger_dream", async move {
                 if let Err(e) = self_
                     .trigger_dream(&config_snapshot, Some(total_tokens))
                     .await
@@ -630,7 +639,7 @@ impl Instance {
                 .context("Using platform instance message receiver")?;
 
             let self_ = Arc::clone(&self);
-            tokio::spawn(async move {
+            spawn_named("instance_receive", async move {
                 if let Err(err) = Box::pin(self_.receive(&platform_msg)).await {
                     error!("Error handling platform message: {:#?}", err);
                 }
@@ -692,7 +701,7 @@ impl Instance {
                 insert_compaction_after,
                 |dream_state, pct| {
                     let platform_instance = Arc::clone(&self.platform_instance);
-                    task::spawn(async move {
+                    spawn_named("send_dream_partial", async move {
                         if let Err(e) = platform_instance
                             .send_partial(PartialUpdate::Dream(
                                 context_size.is_none(),

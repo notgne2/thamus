@@ -19,7 +19,7 @@ use crate::instance::DreamState;
 use crate::messages::{self};
 use crate::platforms::{PartialUpdate, PlatformInstance};
 use crate::providers::llm;
-use crate::utils;
+use crate::utils::{self, spawn_named};
 
 /// Discord platform implementation for a specific channel
 pub struct DiscordPlatformInstance {
@@ -176,7 +176,7 @@ impl DiscordPlatformInstance {
         let channel_id = self.channel_id;
         let http = self.http.clone();
 
-        tokio::spawn(async move {
+        spawn_named("discord_broadcast_typing", async move {
             loop {
                 sleep(Duration::from_secs(6)).await;
                 if *working.lock().await
@@ -320,15 +320,16 @@ impl PlatformInstance for DiscordPlatformInstance {
                 messages::BotEntryKind::Reasoning(_reasoning) => {
                     let config = snapshot_config(&self.config).await;
 
-                    if let Some(usage) = usage {
-                        Some(utils::standard_status_str(&format!(
-                            "workin on a big thought: {}%",
-                            (usage.tokens_generated * 100)
-                                / config.providers.llm.default_constraints.max_think
-                        )))
-                    } else {
-                        Some(utils::standard_status_str("workin on a big thought"))
-                    }
+                    Some(usage.map_or_else(
+                        || utils::standard_status_str("workin on a big thought"),
+                        |usage| {
+                            utils::standard_status_str(&format!(
+                                "workin on a big thought: {}%",
+                                (usage.tokens_generated * 100)
+                                    / config.providers.llm.default_constraints.max_think
+                            ))
+                        },
+                    ))
                 }
             },
             PartialUpdate::Dream(forced, dream_state, pct) => {

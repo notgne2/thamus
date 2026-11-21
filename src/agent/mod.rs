@@ -266,6 +266,7 @@ impl Agent {
     >(
         self: &Arc<Self>,
         ctx: C,
+        config_snapshot: &ConfigSnapshot,
         constraints: Option<&llm::LlmConstraints>,
         msg: messages::MessageEntry,
         force: bool,
@@ -292,7 +293,6 @@ impl Agent {
         };
 
         let sub_config = ctx.get_config().await.clone();
-        let config_snapshot = snapshot_config(&self.common.config).await;
 
         let id_slot = slots::get_slot(
             &self.common,
@@ -670,8 +670,8 @@ impl Agent {
     >(
         &self,
         ctx: C,
+        config_snapshot: &ConfigSnapshot,
     ) -> Result<messages::Prompt> {
-        let config_snapshot = snapshot_config(&self.common.config).await;
         let sub_config = &ctx.get_config().await;
         let toolset = &ctx.get_toolset().await?;
         let instructions = ctx
@@ -682,7 +682,7 @@ impl Agent {
 
         self.get_prompt_with_inputs(
             &self.common.config,
-            &config_snapshot,
+            config_snapshot,
             sub_config,
             toolset,
             instructions,

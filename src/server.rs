@@ -152,8 +152,14 @@ impl Api {
 
     #[oai(path = "/memory", method = "post")]
     async fn add_memory(&self, body: Json<SaveMemoryRequest>) -> poem::Result<Json<SuccessResult>> {
+        let config_snapshot = snapshot_config(&self.common.config).await;
         crate::mem::save_recall(
             &self.common,
+            config_snapshot
+                .providers
+                .embed
+                .as_ref()
+                .context("Embedding disabled")?,
             (&body.citation_username, &body.citation_text),
             &body.content,
         )
@@ -185,11 +191,16 @@ impl Api {
         &self,
         body: Json<SearchMemoryRequest>,
     ) -> poem::Result<Json<Vec<Any<crate::mem::Recall>>>> {
-        let config = snapshot_config(&self.common.config).await;
+        let config_snapshot = snapshot_config(&self.common.config).await;
         let recalls = crate::mem::search_recalls(
             &self.common,
+            config_snapshot
+                .providers
+                .embed
+                .as_ref()
+                .context("Embedding disabled")?,
             &body.query,
-            config.instance.memory.search_limit,
+            config_snapshot.instance.memory.search_limit,
         )
         .await
         .context("searching memories")?;
@@ -201,9 +212,17 @@ impl Api {
 
     #[oai(path = "/memory/reembed", method = "post")]
     async fn reembed_memories(&self) -> poem::Result<Json<ReembedResult>> {
-        let count = crate::mem::reembed_all(&self.common)
-            .await
-            .context("reembedding memories")?;
+        let config_snapshot = snapshot_config(&self.common.config).await;
+        let count = crate::mem::reembed_all(
+            &self.common,
+            config_snapshot
+                .providers
+                .embed
+                .as_ref()
+                .context("Embedding disabled")?,
+        )
+        .await
+        .context("reembedding memories")?;
 
         Ok(Json(ReembedResult {
             reembedded: count as u64,

@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::SqlitePool;
 use std::collections::HashSet;
-use tracing::instrument;
+use tracing::{instrument, trace};
 
-use crate::{CommonResources, db, mem, messages};
+use crate::{CommonResources, db, mem, messages, providers::embed::EmbedConfig};
 
 use formatx::formatx;
 
@@ -128,6 +128,7 @@ async fn fetch_recent_history_clump(
 #[instrument(level = "trace", skip_all)]
 async fn collect_infusion_memories(
     common: &CommonResources,
+    embed_config: &EmbedConfig,
     queries: Vec<String>,
     history_clump: &str,
     search_size: u16,
@@ -137,7 +138,7 @@ async fn collect_infusion_memories(
 
     // Search for memories matching each query
     for query in queries {
-        let results = mem::search_recalls(common, &query, search_size).await?;
+        let results = mem::search_recalls(common, embed_config, &query, search_size).await?;
 
         let filtered: Vec<_> = results
             .into_iter()
@@ -173,10 +174,16 @@ async fn collect_infusion_memories(
 #[instrument(level = "trace", skip_all)]
 pub async fn create_infusion_message(
     common: &CommonResources,
+    infusion_config: &InfusionConfig,
+    embed_config: Option<&EmbedConfig>,
     instance_id: &str,
     platform_msg: &messages::PlatformMessage,
-    infusion_config: &InfusionConfig,
 ) -> Result<Option<messages::MessageEntry>> {
+    let Some(embed_config) = embed_config else {
+        trace!("Embedding disabled, no infusion");
+        return Ok(None);
+    };
+
     let queries = select_memory_queries(
         &infusion_config.queries,
         &platform_msg.author_name,
@@ -188,6 +195,7 @@ pub async fn create_infusion_message(
 
     let memories = collect_infusion_memories(
         common,
+        embed_config,
         queries,
         &history_clump,
         infusion_config.search_size,

@@ -25,6 +25,7 @@ use crate::messages::{self};
 use crate::providers::llm::LlmTool;
 use crate::utils::formats::ext_for_mime;
 use crate::utils::sandbox::{SandboxConfig, sandboxify_command};
+use crate::utils::spawn_named;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -214,10 +215,9 @@ async fn create_definition(
 
         for tool in tools_response.tools {
             tools.push(LlmTool {
-                name: format!("{}__{}", server_name, tool.name),
+                name: format!("{server_name}__{}", tool.name),
                 description: format!(
-                    "{} tool: {}",
-                    server_name,
+                    "{server_name} tool: {}",
                     tool.description.as_deref().unwrap_or("MCP tool")
                 ),
                 parameters: Value::Object((*tool.input_schema).clone()),
@@ -227,14 +227,14 @@ async fn create_definition(
 
     if peer_info.capabilities.resources.is_some() {
         tools.push(LlmTool {
-                    name: format!("{}__read_resource", server_name),
-                    description: format!("Read a resource from any `{}` tool", server_name),
+                    name: format!("{server_name}__read_resource"),
+                    description: format!("Read a resource from any `{server_name}` tool"),
                     parameters: json!({
                         "type": "object",
                         "properties": {
                             "uri": {
                                 "type": "string",
-                                "description": format!("Any resource URI to do with `{}` tools (not a generic web URL, real filesystem path, or resource URI from a different type of tool)", server_name),
+                                "description": format!("Any resource URI to do with `{server_name}` tools (not a generic web URL, real filesystem path, or resource URI from a different type of tool)"),
                             },
                         },
                         "required": ["uri"],
@@ -278,7 +278,7 @@ async fn create_entry(
             let config_snapshot = config_snapshot.clone();
             let mcp_config = mcp_config.clone();
             let sandbox_config = sandbox_config.clone();
-            tokio::spawn(async move {
+            spawn_named("mcp_watch_notifications", async move {
                 if let Err(err) = watch_notifications(
                     &server_name,
                     &config_snapshot,
@@ -373,7 +373,7 @@ async fn create_index(
             }
         };
 
-        entries.insert(server_name.to_string(), entry);
+        entries.insert(server_name.clone(), entry);
     }
 
     entries

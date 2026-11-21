@@ -63,6 +63,11 @@ impl tooling::BotTool for SearchMemory {
 
         let result: Vec<SearchMemoryResult> = mem::search_recalls(
             &self.0,
+            config_snapshot
+                .providers
+                .embed
+                .as_ref()
+                .context("Embedding is disabled")?,
             &args.query,
             config_snapshot.instance.memory.search_limit,
         )
@@ -132,7 +137,7 @@ impl tooling::BotTool for SaveMemory {
     }
     async fn call_json(
         &self,
-        _config_snapshot: &ConfigSnapshot,
+        config_snapshot: &ConfigSnapshot,
         _sub_config: &AgentConfig,
         args: serde_json::Value,
     ) -> Result<(String, Vec<PathBuf>)> {
@@ -142,6 +147,11 @@ impl tooling::BotTool for SaveMemory {
         if let Some(existing_id) = args.replace_existing_id {
             mem::update_recall(
                 &self.0,
+                config_snapshot
+                    .providers
+                    .embed
+                    .as_ref()
+                    .context("Embedding is disabled")?,
                 existing_id,
                 Some((&args.citation_username, &args.citation_text)),
                 Some(&args.content),
@@ -151,6 +161,11 @@ impl tooling::BotTool for SaveMemory {
         } else {
             mem::save_recall(
                 &self.0,
+                config_snapshot
+                    .providers
+                    .embed
+                    .as_ref()
+                    .context("Embedding is disabled")?,
                 (&args.citation_username, &args.citation_text),
                 &args.content,
             )

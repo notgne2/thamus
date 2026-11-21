@@ -6,10 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::PathBuf};
 use tracing::trace;
 
-use crate::{
-    agent::AgentConfig, config::ConfigSnapshot, messages, providers::llm::LlmTool,
-    utils::sandbox::SandboxConfig,
-};
+use crate::{agent::AgentConfig, config::ConfigSnapshot, messages, providers::llm::LlmTool};
 
 use mcp::McpConfig;
 

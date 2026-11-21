@@ -2,7 +2,6 @@ use std::io;
 use std::io::SeekFrom;
 
 use memchr::memrchr_iter;
-use tokio::fs::File;
 use tokio::io::{
     AsyncBufReadExt as _, AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, BufReader,
 };

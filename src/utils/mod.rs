@@ -2,7 +2,10 @@ use std::borrow::{Borrow as _, Cow};
 
 use anyhow::{Context as _, Result};
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncRead, AsyncSeek};
+use tokio::{
+    io::{AsyncRead, AsyncSeek},
+    task::JoinHandle,
+};
 use tracing::instrument;
 
 use crate::messages;
@@ -11,6 +14,25 @@ pub mod formats;
 pub mod sandbox;
 mod tail;
 pub mod tooling;
+
+// pub fn spawn_named<F>(name: &str, future: F) -> JoinHandle<F::Output>
+// where
+//     F: Future + Send + 'static,
+//     F::Output: Send + 'static,
+// {
+//     tokio::spawn(future)
+// }
+
+pub fn spawn_named<F>(name: &str, future: F) -> JoinHandle<F::Output>
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    tokio::task::Builder::new()
+        .name(name)
+        .spawn(future)
+        .unwrap()
+}
 
 pub enum NotCow<'a, B: Sized + 'a> {
     Owned(B),

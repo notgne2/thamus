@@ -53,6 +53,8 @@
 
           RUST_LOG = "warn,thamus=trace";
 
+          RUSTFLAGS="--cfg tokio_unstable";
+
           packages = with pkgs; [
             nixd
             sqlite

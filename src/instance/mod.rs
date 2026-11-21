@@ -431,8 +431,6 @@ impl Instance {
         config_snapshot: &ConfigSnapshot,
         error: &anyhow::Error,
     ) -> Result<String> {
-        error!("Error handling response: {error:?}");
-
         let public_error_text = formatx!(
             &config_snapshot.instance.messages.public_error,
             error = error
@@ -641,7 +639,7 @@ impl Instance {
             let self_ = Arc::clone(&self);
             spawn_named("instance_receive", async move {
                 if let Err(err) = Box::pin(self_.receive(&platform_msg)).await {
-                    error!("Error handling platform message: {:#?}", err);
+                    error!("Error handling platform message: {:?}", err);
                 }
             });
         }

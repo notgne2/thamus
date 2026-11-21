@@ -154,7 +154,7 @@ pub enum AgentOutput {
 
 #[derive(Debug, Error)]
 pub enum ResponseError {
-    #[error("LLM calling error: {0}")]
+    #[error("Calling LLM: {0}")]
     LlmCall(llm::CallError),
     #[error(transparent)]
     Other(#[from] anyhow::Error),

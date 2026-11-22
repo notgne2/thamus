@@ -471,19 +471,122 @@ pub async fn prep_if_should_dream(
     }
 }
 
+fn for_dream_state<'a>(
+    config_snapshot: &'a ConfigSnapshot,
+    dream_context: &mut DreamContext,
+    update_callback: impl Fn(DreamState, u16),
+    dream_state: DreamState,
+) -> (
+    Option<&'a llm::LlmConstraints>,
+    &'a llm::LlmConstraints,
+    messages::MessageEntry,
+) {
+    dream_context.saving = dream_state == DreamState::Saving;
+    update_callback(dream_state, 0);
+
+    let constraints = (if dream_context.saving {
+        &config_snapshot.instance.smarts.dreaming.saving_constraints
+    } else {
+        &config_snapshot
+            .instance
+            .smarts
+            .dreaming
+            .compaction_constraints
+    })
+    .as_ref();
+
+    let def_constraints = constraints.unwrap_or(&config_snapshot.providers.llm.default_constraints);
+
+    let dream_state_blurb = match dream_state {
+        DreamState::ReCompaction => {
+            &config_snapshot
+                .instance
+                .smarts
+                .dreaming
+                .messages
+                .re_compaction
+        }
+        DreamState::Saving => &config_snapshot.instance.smarts.dreaming.messages.saving,
+        DreamState::Compaction => &config_snapshot.instance.smarts.dreaming.messages.compaction,
+    };
+
+    let dream_state_msg =
+        messages::MessageEntry::SystemEntry(messages::SystemEntry::Misc(dream_state_blurb.clone()));
+
+    (constraints, def_constraints, dream_state_msg)
+}
+
+async fn handle_dream_response(
+    common: &CommonResources,
+    config_snapshot: &ConfigSnapshot,
+    insert_compaction_after: messages::MessageId,
+    dream_state: DreamState,
+    active_dream_state: &mut Option<DreamState>,
+    re_compaction: &mut Option<String>,
+    message: messages::BotMessage,
+) -> Result<()> {
+    let final_str = message
+        .content
+        .into_iter()
+        .filter_map(|content| match content {
+            messages::BotMessageContent::Text(text) => Some(text.text),
+            messages::BotMessageContent::Attachment(_) => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    *active_dream_state = match dream_state {
+        DreamState::ReCompaction => {
+            *re_compaction = Some(final_str.clone());
+            Some(DreamState::Saving)
+        }
+        DreamState::Compaction => {
+            let compaction_msg = formatx!(
+                &config_snapshot
+                    .instance
+                    .smarts
+                    .dreaming
+                    .output_messages
+                    .compaction,
+                final_str = final_str,
+                re_compaction_str = re_compaction
+                    .as_deref()
+                    .unwrap_or("[no re-compaction produced]"),
+            )
+            .context("formatting compaction template")?;
+
+            db::dream::save_compaction(&common.pool, insert_compaction_after, compaction_msg)
+                .await
+                .context("saving compaction")?;
+
+            None
+        }
+        DreamState::Saving => {
+            if final_str.to_uppercase() == "DONE" {
+                Some(DreamState::Compaction)
+            } else {
+                Some(DreamState::Saving)
+            }
+        }
+    };
+
+    debug!(
+        "Done with all turns for {dream_state}, and have output of {final_str} - starting {active_dream_state:?}"
+    );
+
+    Ok(())
+}
+
 #[instrument(level = "info", skip(common, config_snapshot, update_callback))]
-pub async fn run_dream<F>(
+pub async fn run_dream(
     common: CommonResources,
     config_snapshot: &ConfigSnapshot,
 
     instance_id: &str,
     insert_compaction_after: messages::MessageId,
 
-    update_callback: F,
-) -> Result<()>
-where
-    F: Fn(DreamState, u16),
-{
+    update_callback: impl Fn(DreamState, u16) + Copy,
+) -> Result<()> {
     let agent = agent::Agent::new(
         common.clone(),
         Arc::new(AtomicU8::new(0)),
@@ -503,40 +606,17 @@ where
     let mut active_dream_state = Some(DreamState::ReCompaction);
     let mut re_compaction: Option<String> = None;
     while let Some(dream_state) = active_dream_state {
-        dream_context.saving = dream_state == DreamState::Saving;
-        update_callback(dream_state, 0);
-
-        let constraints = if dream_context.saving {
-            &config_snapshot.instance.smarts.dreaming.saving_constraints
-        } else {
-            &config_snapshot
-                .instance
-                .smarts
-                .dreaming
-                .compaction_constraints
-        };
-
-        let dream_state_blurb = match dream_state {
-            DreamState::ReCompaction => {
-                &config_snapshot
-                    .instance
-                    .smarts
-                    .dreaming
-                    .messages
-                    .re_compaction
-            }
-            DreamState::Saving => &config_snapshot.instance.smarts.dreaming.messages.saving,
-            DreamState::Compaction => &config_snapshot.instance.smarts.dreaming.messages.compaction,
-        };
-
-        let dream_state_msg = messages::MessageEntry::SystemEntry(messages::SystemEntry::Misc(
-            dream_state_blurb.clone(),
-        ));
+        let (constraints, def_constraints, dream_state_msg) = for_dream_state(
+            config_snapshot,
+            &mut dream_context,
+            update_callback,
+            dream_state,
+        );
 
         let s = Box::pin(agent.respond(
             &dream_context,
             config_snapshot,
-            constraints.as_ref(),
+            constraints,
             dream_state_msg,
             true,
         ))
@@ -548,75 +628,27 @@ where
         while let Some(r) = s.next().await {
             match r.context("Receiving response chunk for dream")? {
                 crate::instance::agent::AgentOutput::FinalMessage { message, .. } => {
-                    let final_str = message
-                        .content
-                        .into_iter()
-                        .filter_map(|content| match content {
-                            messages::BotMessageContent::Text(text) => Some(text.text),
-                            messages::BotMessageContent::Attachment(_) => None,
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n\n");
-
-                    active_dream_state = match dream_state {
-                        DreamState::ReCompaction => {
-                            re_compaction = Some(final_str.clone());
-                            Some(DreamState::Saving)
-                        }
-                        DreamState::Compaction => {
-                            let compaction_msg = formatx!(
-                                &config_snapshot
-                                    .instance
-                                    .smarts
-                                    .dreaming
-                                    .output_messages
-                                    .compaction,
-                                final_str = final_str,
-                                re_compaction_str = re_compaction
-                                    .as_deref()
-                                    .unwrap_or("[no re-compaction produced]"),
-                            )
-                            .context("formatting compaction template")?;
-
-                            db::dream::save_compaction(
-                                &common.pool,
-                                insert_compaction_after,
-                                compaction_msg,
-                            )
-                            .await
-                            .context("saving compaction")?;
-
-                            None
-                        }
-                        DreamState::Saving => {
-                            if final_str.to_uppercase() == "DONE" {
-                                Some(DreamState::Compaction)
-                            } else {
-                                Some(DreamState::Saving)
-                            }
-                        }
-                    };
-
-                    debug!(
-                        "Done with all turns for {dream_state}, and have output of {final_str} - starting {active_dream_state:?}"
-                    );
+                    handle_dream_response(
+                        &common,
+                        config_snapshot,
+                        insert_compaction_after,
+                        DreamState::Compaction,
+                        &mut active_dream_state,
+                        &mut re_compaction,
+                        message,
+                    )
+                    .await?;
                 }
-                crate::instance::agent::AgentOutput::PartialEntry { usage, .. } => {
-                    let Some(usage) = usage else {
-                        continue;
-                    };
-
-                    let def_constraints = constraints
-                        .as_ref()
-                        .unwrap_or(&config_snapshot.providers.llm.default_constraints);
-
+                crate::instance::agent::AgentOutput::PartialEntry {
+                    usage: Some(usage), ..
+                } => {
                     update_callback(
                         dream_state,
                         u16::try_from((usage.tokens_generated * 100) / def_constraints.max_gen)
                             .unwrap_or(u16::MAX),
                     );
                 }
-                crate::instance::agent::AgentOutput::End { .. } => {}
+                _ => {}
             }
         }
     }

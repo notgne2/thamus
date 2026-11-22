@@ -46,7 +46,7 @@ pub struct PromptConfig {
 #[instrument(level = "trace", skip_all)]
 pub async fn fix_attachments_for_prompting(
     sub_config: &AgentConfig,
-    supported_extensions: &[impl AsRef<str>],
+    supported_extensions: &[impl AsRef<str> + Sync],
     ctx: &mut Vec<messages::Message>,
 ) -> Result<()> {
     for message in ctx {

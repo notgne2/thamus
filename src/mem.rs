@@ -62,9 +62,11 @@ pub async fn search_recalls(
     embed_config: &EmbedConfig,
     query: &str,
     limit: u16,
+    include_hidden: bool,
 ) -> anyhow::Result<Vec<Recall>> {
     let embedding = embed(common, embed_config, query).await?;
-    db::mem::search_recalls_with_embedding(&common.pool, down_vec(embedding), limit).await
+    db::mem::search_recalls_with_embedding(&common.pool, down_vec(embedding), limit, include_hidden)
+        .await
 }
 
 #[instrument(level = "trace", skip_all)]
@@ -72,7 +74,7 @@ pub async fn reembed_all(
     common: &CommonResources,
     embed_config: &EmbedConfig,
 ) -> anyhow::Result<usize> {
-    let recalls = db::mem::get_all_recalls(&common.pool).await?;
+    let recalls = db::mem::get_all_recalls(&common.pool, true).await?;
     let count = recalls.len();
 
     let tasks = stream::iter(recalls).map(|recall| {

@@ -107,12 +107,21 @@ pub async fn search_recalls_with_embedding(
 
     query_embedding: Vec<f32>,
     limit: u16,
+    include_hidden: bool,
 ) -> Result<Vec<Recall>> {
     check_dimension(&query_embedding)?;
 
     let k = i64::from(limit.clamp(1, 1000));
 
-    let rows: Vec<RecallRow> = sqlx::query_as(
+    let query = if include_hidden {
+        "
+            SELECT id, citation_text, citation_username, text
+              FROM recalls
+             WHERE embedding MATCH ?1
+               AND k = ?2
+             ORDER BY distance
+            "
+    } else {
         "
             SELECT id, citation_text, citation_username, text
               FROM recalls
@@ -120,13 +129,15 @@ pub async fn search_recalls_with_embedding(
                AND k = ?2
                AND hidden != 1
              ORDER BY distance
-            ",
-    )
-    .bind(query_embedding.as_bytes())
-    .bind(k)
-    .fetch_all(pool)
-    .await
-    .context("searching recalls by embedding similarity")?;
+            "
+    };
+
+    let rows: Vec<RecallRow> = sqlx::query_as(query)
+        .bind(query_embedding.as_bytes())
+        .bind(k)
+        .fetch_all(pool)
+        .await
+        .context("searching recalls by embedding similarity")?;
 
     Ok(rows
         .into_iter()
@@ -140,13 +151,18 @@ pub async fn search_recalls_with_embedding(
 }
 
 #[instrument(level = "trace", skip_all)]
-pub async fn get_all_recalls(pool: &sqlx::SqlitePool) -> Result<Vec<Recall>> {
-    let rows: Vec<RecallRow> = sqlx::query_as(
-        "SELECT id, citation_text, citation_username, text FROM recalls WHERE COALESCE(hidden, 0) = 0",
-    )
-    .fetch_all(pool)
-    .await
-    .context("fetching all recalls")?;
+pub async fn get_all_recalls(pool: &sqlx::SqlitePool, include_hidden: bool) -> Result<Vec<Recall>> {
+    let query = if include_hidden {
+        sqlx::query_as("SELECT id, citation_text, citation_username, text FROM recalls")
+    } else {
+        sqlx::query_as(
+            "SELECT id, citation_text, citation_username, text FROM recalls WHERE hidden != 1",
+        )
+    };
+    let rows: Vec<RecallRow> = query
+        .fetch_all(pool)
+        .await
+        .context("fetching all recalls")?;
 
     Ok(rows
         .into_iter()

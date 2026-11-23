@@ -50,7 +50,10 @@ pub async fn run_history(cmd: HistoryCmd, server: &ServerConfig) -> Result<()> {
 #[derive(Debug, Clone, Bpaf)]
 pub enum MemoryCmd {
     #[bpaf(command("list"))]
-    List,
+    List {
+        #[bpaf(long("hidden"), short('h'), fallback(false))]
+        include_hidden: bool,
+    },
 
     #[bpaf(command("add"))]
     Add {
@@ -66,6 +69,8 @@ pub enum MemoryCmd {
     Search {
         #[bpaf(positional("QUERY"))]
         query: String,
+        #[bpaf(long("hidden"), short('h'), fallback(false))]
+        include_hidden: bool,
     },
 
     #[bpaf(command("delete"))]
@@ -82,13 +87,16 @@ pub async fn run_memory(cmd: MemoryCmd, server: &ServerConfig) -> Result<()> {
     let client = Client::new(server);
 
     match cmd {
-        MemoryCmd::List => list_memories_cmd(&client).await,
+        MemoryCmd::List { include_hidden } => list_memories_cmd(&client, include_hidden).await,
         MemoryCmd::Add {
             content,
             citation_username,
             citation_text,
         } => add_memory_cmd(&client, &content, &citation_username, &citation_text).await,
-        MemoryCmd::Search { query } => search_memories_cmd(&client, &query).await,
+        MemoryCmd::Search {
+            query,
+            include_hidden,
+        } => search_memories_cmd(&client, &query, include_hidden).await,
         MemoryCmd::Delete { ids } => delete_memories_cmd(&client, &ids).await,
         MemoryCmd::Reembed => reembed_memories_cmd(&client).await,
     }
@@ -193,10 +201,10 @@ impl Client {
         Ok(deleted.deleted)
     }
 
-    async fn list_memories(&self) -> Result<Vec<crate::mem::Recall>> {
+    async fn list_memories(&self, include_hidden: bool) -> Result<Vec<crate::mem::Recall>> {
         trace!("Listing memories");
 
-        let url = format!("{}/api/memory", self.base);
+        let url = format!("{}/api/memory?include_hidden={}", self.base, include_hidden);
 
         self.http
             .get(&url)
@@ -273,10 +281,17 @@ impl Client {
         Ok(deleted.deleted)
     }
 
-    async fn search_memories(&self, query: &str) -> Result<Vec<crate::mem::Recall>> {
+    async fn search_memories(
+        &self,
+        query: &str,
+        include_hidden: bool,
+    ) -> Result<Vec<crate::mem::Recall>> {
         trace!("Searching memories for query: {}", query);
 
-        let url = format!("{}/api/memory/search", self.base);
+        let url = format!(
+            "{}/api/memory/search?include_hidden={}",
+            self.base, include_hidden
+        );
 
         #[derive(serde::Serialize)]
         struct SearchMemoryRequest<'a> {
@@ -324,8 +339,8 @@ impl Client {
     }
 }
 
-async fn list_memories_cmd(client: &Client) -> Result<()> {
-    let memories = client.list_memories().await?;
+async fn list_memories_cmd(client: &Client, include_hidden: bool) -> Result<()> {
+    let memories = client.list_memories(include_hidden).await?;
 
     if memories.is_empty() {
         print_empty_history("Memories");
@@ -375,8 +390,8 @@ async fn reembed_memories_cmd(client: &Client) -> Result<()> {
     Ok(())
 }
 
-async fn search_memories_cmd(client: &Client, query: &str) -> Result<()> {
-    let memories = client.search_memories(query).await?;
+async fn search_memories_cmd(client: &Client, query: &str, include_hidden: bool) -> Result<()> {
+    let memories = client.search_memories(query, include_hidden).await?;
 
     if memories.is_empty() {
         print_empty_history("Search Results");

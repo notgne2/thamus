@@ -70,6 +70,7 @@ impl tooling::BotTool for SearchMemory {
                 .context("Embedding is disabled")?,
             &args.query,
             config_snapshot.instance.memory.search_limit,
+            false,
         )
         .await
         .context("searching memories")?

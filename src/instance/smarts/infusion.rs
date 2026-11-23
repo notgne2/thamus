@@ -138,7 +138,7 @@ async fn collect_infusion_memories(
 
     // Search for memories matching each query
     for query in queries {
-        let results = mem::search_recalls(common, embed_config, &query, search_size).await?;
+        let results = mem::search_recalls(common, embed_config, &query, search_size, false).await?;
 
         let filtered: Vec<_> = results
             .into_iter()
@@ -153,7 +153,7 @@ async fn collect_infusion_memories(
 
     // Add random memories as fallback
     if memories.len() < chunk_size as usize {
-        let all_memories = db::mem::get_all_recalls(&common.pool).await?;
+        let all_memories = db::mem::get_all_recalls(&common.pool, false).await?;
 
         let filtered: Vec<_> = all_memories
             .into_iter()

@@ -2,7 +2,12 @@ use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
 use anyhow::{Context as _, Result};
 use poem::{EndpointExt as _, Route, Server, listener::TcpListener};
-use poem_openapi::{Object, OpenApi, OpenApiService, param::Path, payload::Json, types::Any};
+use poem_openapi::{
+    Object, OpenApi, OpenApiService,
+    param::{Path, Query},
+    payload::Json,
+    types::Any,
+};
 use serde::{Deserialize, Serialize};
 use tracing::{info, trace};
 
@@ -140,8 +145,11 @@ impl Api {
     }
 
     #[oai(path = "/memory", method = "get")]
-    async fn dump_all_memories(&self) -> poem::Result<Json<Vec<Any<crate::mem::Recall>>>> {
-        let recalls = db::mem::get_all_recalls(&self.common.pool)
+    async fn dump_all_memories(
+        &self,
+        include_hidden: Query<bool>,
+    ) -> poem::Result<Json<Vec<Any<crate::mem::Recall>>>> {
+        let recalls = db::mem::get_all_recalls(&self.common.pool, include_hidden.0)
             .await
             .context("fetching memories")?;
 
@@ -190,6 +198,7 @@ impl Api {
     async fn search_memories(
         &self,
         body: Json<SearchMemoryRequest>,
+        include_hidden: Query<bool>,
     ) -> poem::Result<Json<Vec<Any<crate::mem::Recall>>>> {
         let config_snapshot = snapshot_config(&self.common.config).await;
         let recalls = crate::mem::search_recalls(
@@ -201,6 +210,7 @@ impl Api {
                 .context("Embedding disabled")?,
             &body.query,
             config_snapshot.instance.memory.search_limit,
+            include_hidden.0,
         )
         .await
         .context("searching memories")?;

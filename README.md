@@ -2,19 +2,21 @@
 
 TODO: add some kind of pretentious and incomprehensible word soup here
 
+TODO: add some thousand odd weird badges and links to meaningless things
+
 ![obligatory slop banner](./slop_banner.webp)
 
-Because, I swear, nobody else is putting in **any** effort!
+This whole thing only exists because, I swear, nobody else is putting in **any** effort! I only wanted a tool good enough to run a funny chat robot!
 
 ## Features
 
 - Low resource usage 📉
 - - I heard of people having dedicated machines to run what is basically... just a proxy between an interface and a model API? I laugh. That is nonsense 🙄
 - Memory/save system 📝
-- - Includes automatically spewing memories into context (infusions) 💉
+- - Includes automatically spewing memories into context ("infusions") 💉
 - Hot config reloading 🔥
 - - All files are watched and updates read out in real time 👀
-- - All config changes are respected **live**, even halfway through a response ⏺️
+- - All config changes are respected **live**, even while responding ⏺️
 - The bot can edit its own config 🐍
 - - This is gated by a whitelist of what can be edited 🛂
 - - Yeah, you can totally whitelist it to edit the whitelist, but please don't do that 🙏
@@ -23,10 +25,11 @@ Because, I swear, nobody else is putting in **any** effort!
 - - _Even if you change the prompt_, it is added as a **diff** until the next compaction 🪩
 - - ok fine I lied. reconfiguring supported input file types can invalidate the prompt cache. this is not avoidable 🫤
 - **Extremely** low context window overhead 🤏
-- - Seriously, it is tiny compared to others 🐜
-- - **All** strings injected into context besides chat messages, are **fully configurable** ✉️
-- Background processing / dreams 😴
-- - Ensmallens the last summary, manages memories, and makes new compactions 🧹
+- - Seriously, it is really tiny compared to others 🐜
+- - **All** strings injected into context (besides actual chat messages, obviously), are **fully configurable** ✉️
+- Background processing / "dreams" 😴
+- - Runs while you are still able to continue conversing 🗣️
+- - Makes last summary smaller, manages memories, and makes a new compaction (which atomically updates history _once_) 🧹
 - - This means conversations can go forever without ever waiting for compaction ♾️
 - Abstract platform implementations 🔧
 - - Includes voice support 🗣️
@@ -41,10 +44,10 @@ Because, I swear, nobody else is putting in **any** effort!
 - Le funny image, voice, and song generation 🏭
 - At least moderately decent internal architecture that can be perceived and extended 🧑‍💻
 - - **No** incomprehensible "smoking gun gate is green worth noting load bearing" garbage 😄
-- - You can even read the code. I even wrote it. I even wrote all these stupid emojis 🤣
+- - I wrote the code, and you should be able to read it. I even picked and wrote all these stupid emojis 🤣
 - Some semblence of not trying to be a security nightmare 🔒
 - - The agent is given its own sandbox environment 🏖️
-- - and accessing its files is done safely, so a simple symlink doesn't pwn you 🦺
+- - Accessing files is done safely, so a simple symlink or malformed file shouldn't pwn your host 🦺
 
 ## I had to build this
 

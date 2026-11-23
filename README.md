@@ -21,6 +21,7 @@ Because, I swear, nobody else is putting in **any** effort!
 - **_No_** prompt cache invalidation (outside of intentional compactions/summarization) 🥳
 - - No, like _seriously_, there are **no** invalidations that can happen otherwise 🎉
 - - _Even if you change the prompt_, it is added as a **diff** until the next compaction 🪩
+- - ok fine I lied. reconfiguring supported input file types can invalidate the prompt cache. this is not avoidable 🫤
 - **Extremely** low context window overhead 🤏
 - - Seriously, it is tiny compared to others 🐜
 - - **All** strings injected into context besides chat messages, are **fully configurable** ✉️

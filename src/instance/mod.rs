@@ -666,6 +666,22 @@ impl Instance {
         config_snapshot: &ConfigSnapshot,
         context_size: Option<u32>,
     ) -> Result<()> {
+        let dream_lock = match self.dream_lock.try_acquire() {
+            Ok(l) => l,
+            Err(TryAcquireError::NoPermits) => {
+                if context_size.is_none() {
+                    trace!(
+                        "Dream is forced and another is already ongoing - waiting for it, then skipping"
+                    );
+                    let _ = self.dream_lock.acquire().await?;
+                } else {
+                    trace!("Dream is passive, and another is already ongoing - skipping");
+                }
+                return Ok(());
+            }
+            Err(e) => return Err(e).context("Trying to acquire dream lock"),
+        };
+
         let insert_compaction_after = Box::pin(dream::prep_if_should_dream(
             &self.common,
             config_snapshot,
@@ -676,22 +692,6 @@ impl Instance {
         .context("Preparing dream if should dream")?;
 
         if let Some(insert_compaction_after) = insert_compaction_after {
-            let dream_lock = match self.dream_lock.try_acquire() {
-                Ok(l) => l,
-                Err(TryAcquireError::NoPermits) => {
-                    if context_size.is_none() {
-                        trace!(
-                            "Dream is forced and another is already ongoing - waiting for it, then skipping"
-                        );
-                        let _ = self.dream_lock.acquire().await?;
-                    } else {
-                        trace!("Dream is passive, and another is already ongoing - skipping");
-                    }
-                    return Ok(());
-                }
-                Err(e) => return Err(e).context("Trying to acquire dream lock"),
-            };
-
             let r = Box::pin(smarts::dream::run_dream(
                 self.common.clone(),
                 config_snapshot,

@@ -392,13 +392,10 @@ pub async fn prep_if_should_dream(
         .erase_all_history()
         .await
         .context("Erasing old dream history")?;
-    let (original_len, Some(last_original_message_id)) = agent
+    agent
         .copy_from(None, instance_id, true)
         .await
-        .context("Copying original history to dream")?
-    else {
-        bail!("Original instance history has no entries?");
-    };
+        .context("Copying original history to dream")?;
 
     let mut prompt = Box::pin(agent.get_prompt(&dream_context, config_snapshot))
         .await
@@ -448,27 +445,22 @@ pub async fn prep_if_should_dream(
     .await
     .context("Fitting history for dream")?;
 
-    if (u64::from(fit)) < original_len {
-        Box::pin(async {
-            agent
-                .erase_all_history()
-                .await
-                .context("Erasing old dream history")?;
-            let (_entries_copied, Some(last_original_message_id)) = agent
-                .copy_from(Some(fit), instance_id, true)
-                .await
-                .context("Copying original history to dream")?
-            else {
-                bail!("Original instance history has no entries?");
-            };
-            debug!("Dreaming only {fit} entries from original history");
-            Ok(Some(last_original_message_id))
-        })
-        .await
-    } else {
-        debug!("A whole dream is possible");
+    Box::pin(async {
+        agent
+            .erase_all_history()
+            .await
+            .context("Erasing old dream history")?;
+        let (_entries_copied, Some(last_original_message_id)) = agent
+            .copy_from(Some(fit), instance_id, true)
+            .await
+            .context("Copying fitting history to dream")?
+        else {
+            bail!("Original fitting history has no entries?");
+        };
+        debug!("Dreaming only {fit} entries from original history");
         Ok(Some(last_original_message_id))
-    }
+    })
+    .await
 }
 
 fn for_dream_state<'a>(

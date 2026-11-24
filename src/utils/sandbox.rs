@@ -286,8 +286,8 @@ pub async fn safe_sandbox_file_writer(
         anyhow::Ok(fs::File::from_std(file))
     })
     .await
-    .context("spawning blocking file read task")?
-    .context("opening sandbox file to read")?;
+    .context("spawning blocking file write task")?
+    .context("opening sandbox file to write")?;
 
     Ok(file)
 }

@@ -31,6 +31,7 @@ use crate::utils::TruncatedReadRes;
 pub trait GetName {
     fn extension(&self) -> Option<&OsStr>;
     fn file_name(&self) -> Option<&OsStr>;
+    fn display_file_name(&self) -> Option<std::ffi::os_str::Display<'_>>;
     fn display(&self) -> std::path::Display<'_>;
 }
 
@@ -73,33 +74,45 @@ impl GetName for SandboxPath {
     fn file_name(&self) -> Option<&OsStr> {
         self.0.file_name()
     }
+
+    fn display_file_name(&self) -> Option<std::ffi::os_str::Display<'_>> {
+        Some(self.0.file_name()?.display())
+    }
 }
 
 impl GetName for Path {
     fn extension(&self) -> Option<&OsStr> {
-        self.extension()
+        Path::extension(self)
     }
 
     fn display(&self) -> std::path::Display<'_> {
-        self.display()
+        Path::display(self)
     }
 
     fn file_name(&self) -> Option<&OsStr> {
-        self.file_name()
+        Path::file_name(self)
+    }
+
+    fn display_file_name(&self) -> Option<std::ffi::os_str::Display<'_>> {
+        Some(Path::file_name(self)?.display())
     }
 }
 
 impl GetName for PathBuf {
     fn extension(&self) -> Option<&OsStr> {
-        self.extension()
+        Path::extension(self)
     }
 
     fn display(&self) -> std::path::Display<'_> {
-        self.display()
+        Path::display(self)
     }
 
     fn file_name(&self) -> Option<&OsStr> {
-        self.file_name()
+        Path::file_name(self)
+    }
+
+    fn display_file_name(&self) -> Option<std::ffi::os_str::Display<'_>> {
+        Some(Path::file_name(self)?.display())
     }
 }
 

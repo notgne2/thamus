@@ -88,27 +88,28 @@ impl Config {
         files: &mut [(impl GetName, impl AsyncRead + Unpin)],
     ) -> Result<()> {
         for (path, file_reader) in files {
+            let file_name = path
+                .display_file_name()
+                .context("Settings file is missing a filename")?;
+
             let mut content = String::new();
             file_reader
                 .read_to_string(&mut content)
                 .await
-                .with_context(|| format!("Reading config file {:?}", path.file_name()))?;
+                .with_context(|| format!("Reading config file {file_name}"))?;
 
             let value: serde_json::Value = match path
                 .extension()
-                .with_context(|| {
-                    format!("File {:?} is missing a file extension", path.file_name())
-                })?
+                .with_context(|| format!("File {file_name} is missing a file extension"))?
                 .to_str()
-                .with_context(|| {
-                    format!("Bad config file extension in file: {:?}", path.file_name())
-                })? {
+                .with_context(|| format!("Bad config file extension in file: {file_name}"))?
+            {
                 "json" | "json5" | "jsonc" => json5::from_str(&content)
-                    .with_context(|| format!("Parsing JSON config file: {:?}", path.file_name()))?,
+                    .with_context(|| format!("Parsing JSON config file: {file_name}"))?,
                 "ron" => ron::from_str(&content)
-                    .with_context(|| format!("Parsing RON config file: {:?}", path.file_name()))?,
+                    .with_context(|| format!("Parsing RON config file: {file_name}"))?,
                 "toml" => toml::from_str(&content)
-                    .with_context(|| format!("Parsing TOML config file: {:?}", path.file_name()))?,
+                    .with_context(|| format!("Parsing TOML config file: {file_name}"))?,
                 _ => continue,
             };
 

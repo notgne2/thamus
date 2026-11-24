@@ -10,6 +10,7 @@ use crate::agent;
 use crate::agent::AgentConfig;
 use crate::config::ConfigSnapshot;
 use crate::utils::TruncatedReadOutput;
+use crate::utils::sandbox::GetName as _;
 use crate::utils::sandbox::SandboxPath;
 use crate::utils::sandbox::run_in_sandbox;
 use crate::utils::sandbox::safe_ensure_sandbox_dir;

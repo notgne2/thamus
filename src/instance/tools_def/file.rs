@@ -12,6 +12,7 @@ use crate::agent;
 use crate::agent::AgentConfig;
 use crate::config::ConfigSnapshot;
 use crate::utils::TruncatedReadOutput;
+use crate::utils::sandbox::GetName as _;
 use crate::utils::sandbox::SandboxPath;
 use crate::utils::sandbox::make_attachment_from_sandbox;
 use crate::utils::sandbox::safe_sandbox_file_reader;

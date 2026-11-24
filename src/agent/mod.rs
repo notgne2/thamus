@@ -19,6 +19,7 @@ use crate::config::snapshot_config;
 use crate::db;
 use crate::messages;
 use crate::providers::llm;
+use crate::utils::sandbox::GetName as _;
 use crate::utils::sandbox::make_attachment_from_sandbox;
 use crate::utils::{NotCow, tooling};
 
@@ -107,12 +108,14 @@ impl Default for AgentMessagesConfig {
                 You have an active work lock, which will automatically expire after {uses_left} more uses.
             "}),
             selfserve_config_error: String::from(indoc! {"
-                Your selfserve config (the file where you set your own configuration, in /home/config.json) is currently invalid, so is being _entirely_ ignored.
+                Your selfserve config, or one of its files (stored under `settings/`) is currently INVALID, so is being _entirely_ ignored.
 
                 If you caused this error, please edit the file, and if this error is not repeated, this means it is being read and utilized correctly.
 
                 Error:
                 {error_str}
+
+                DO NOT IGNORE THIS ERROR. YOUR CONFIGURATION MUST BE READ.
             "}),
         }
     }

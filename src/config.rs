@@ -1,7 +1,7 @@
 //! Configuration management
 //! Loads application settings from config.toml using the config crate.
 
-use std::{ffi::OsString, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result, bail};
 use futures::StreamExt as _;
@@ -12,7 +12,7 @@ use tokio::{fs, sync::RwLock};
 use tokio_stream::wrappers::ReadDirStream;
 use tracing::{error, info, instrument};
 
-use crate::utils::sandbox::safe_sandbox_file_reader;
+use crate::utils::sandbox::{GetName, safe_sandbox_file_reader};
 use crate::{
     agent, config_rules, instance, platforms, providers, server,
     utils::sandbox::{SandboxPath, safe_ensure_sandbox_dir, safe_read_sandbox_dir},
@@ -85,24 +85,32 @@ impl Config {
 
     async fn read_files_to_the_config(
         the_config: &mut serde_json::Value,
-        files: &mut [(OsString, impl AsyncRead + Unpin)],
+        files: &mut [(impl GetName, impl AsyncRead + Unpin)],
     ) -> Result<()> {
-        for (ext, file_reader) in files {
+        for (path, file_reader) in files {
             let mut content = String::new();
             file_reader
                 .read_to_string(&mut content)
                 .await
-                .context("Reading config file")?;
+                .with_context(|| format!("Reading config file {:?}", path.file_name()))?;
 
-            let value: serde_json::Value =
-                match ext.to_str().context("Bad config file extension")? {
-                    "json" | "json5" | "jsonc" => {
-                        json5::from_str(&content).context("Parsing JSON config file")?
-                    }
-                    "ron" => ron::from_str(&content).context("Parsing RON config file")?,
-                    "toml" => toml::from_str(&content).context("Parsing TOML config file")?,
-                    _ => continue,
-                };
+            let value: serde_json::Value = match path
+                .extension()
+                .with_context(|| {
+                    format!("File {:?} is missing a file extension", path.file_name())
+                })?
+                .to_str()
+                .with_context(|| {
+                    format!("Bad config file extension in file: {:?}", path.file_name())
+                })? {
+                "json" | "json5" | "jsonc" => json5::from_str(&content)
+                    .with_context(|| format!("Parsing JSON config file: {:?}", path.file_name()))?,
+                "ron" => ron::from_str(&content)
+                    .with_context(|| format!("Parsing RON config file: {:?}", path.file_name()))?,
+                "toml" => toml::from_str(&content)
+                    .with_context(|| format!("Parsing TOML config file: {:?}", path.file_name()))?,
+                _ => continue,
+            };
 
             json_patch::merge(the_config, &value);
         }
@@ -125,7 +133,7 @@ impl Config {
     }
 
     #[instrument(level = "debug", skip_all)]
-    async fn get_selfserve_files(&self) -> Result<Vec<(OsString, impl AsyncRead)>> {
+    async fn get_selfserve_files(&self) -> Result<Vec<(SandboxPath, impl AsyncRead)>> {
         let root = &self.default_agent().sandbox.root_dir;
 
         let selfserve_config_dir = SandboxPath::from("settings");
@@ -140,19 +148,10 @@ impl Config {
 
         let mut files = Vec::new();
         while let Some(entry) = settings_read_dir.recv().await {
-            let ext = entry
-                .extension()
-                .with_context(|| {
-                    format!(
-                        "Selfserve settings file missing an extension: {}",
-                        entry.display()
-                    )
-                })?
-                .to_owned();
-            let file_reader = safe_sandbox_file_reader(root.clone(), entry)
+            let file_reader = safe_sandbox_file_reader(root.clone(), entry.clone())
                 .await
                 .context("Safely opening selfserve settings file")?;
-            files.push((ext, file_reader));
+            files.push((entry, file_reader));
         }
 
         Ok(files)
@@ -185,27 +184,24 @@ impl Config {
     }
 
     #[instrument(level = "debug")]
-    async fn get_files() -> Result<Vec<(OsString, fs::File)>> {
+    async fn get_files() -> Result<Vec<(PathBuf, fs::File)>> {
         let settings_read_dir = fs::read_dir("./settings")
             .await
             .context("reading settings directory")?;
         let mut settings_read_dir_stream = ReadDirStream::new(settings_read_dir);
 
-        let mut files: Vec<(OsString, fs::File)> = Vec::new();
+        let mut files: Vec<(PathBuf, fs::File)> = Vec::new();
 
         while let Some(entry_r) = settings_read_dir_stream.next().await {
             let entry = entry_r.context("reading settings file entry")?;
 
             let path = entry.path();
-            let ext = path
-                .extension()
-                .context("Config files need to have an extension")?;
 
             let file = fs::File::open(&path)
                 .await
                 .context("opening settings file")?;
 
-            files.push((ext.to_owned(), file));
+            files.push((path, file));
         }
 
         Ok(files)

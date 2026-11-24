@@ -5,7 +5,11 @@ use std::{collections::BTreeMap, ffi::OsStr, fmt::Write as _};
 use tracing::{instrument, trace};
 
 use crate::{
-    CommonResources, agent::AgentConfig, config::ConfigSnapshot, db, messages, utils::sandbox,
+    CommonResources,
+    agent::AgentConfig,
+    config::ConfigSnapshot,
+    db, messages,
+    utils::sandbox::{self, GetName as _},
 };
 use formatx::formatx;
 

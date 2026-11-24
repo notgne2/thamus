@@ -28,6 +28,12 @@ use tracing::trace;
 
 use crate::utils::TruncatedReadRes;
 
+pub trait GetName {
+    fn extension(&self) -> Option<&OsStr>;
+    fn file_name(&self) -> Option<&OsStr>;
+    fn display(&self) -> std::path::Display<'_>;
+}
+
 #[derive(Debug, Clone)]
 pub struct SandboxPath(PathBuf);
 
@@ -38,13 +44,6 @@ impl SandboxPath {
     pub fn from<T: Into<PathBuf>>(path: T) -> Self {
         Self(path.into())
     }
-    pub fn display(&self) -> std::path::Display<'_> {
-        self.0.display()
-    }
-
-    pub fn extension(&self) -> Option<&OsStr> {
-        self.0.extension()
-    }
 
     fn absolutify(self) -> Self {
         if self.0.is_absolute() {
@@ -54,14 +53,53 @@ impl SandboxPath {
         }
     }
 
-    fn file_name(&self) -> Option<&OsStr> {
-        self.0.file_name()
-    }
     fn parent(&self) -> Option<&Path> {
         self.0.parent()
     }
     fn path(&self) -> &Path {
         &self.0
+    }
+}
+
+impl GetName for SandboxPath {
+    fn extension(&self) -> Option<&OsStr> {
+        self.0.extension()
+    }
+
+    fn display(&self) -> std::path::Display<'_> {
+        self.0.display()
+    }
+
+    fn file_name(&self) -> Option<&OsStr> {
+        self.0.file_name()
+    }
+}
+
+impl GetName for Path {
+    fn extension(&self) -> Option<&OsStr> {
+        self.extension()
+    }
+
+    fn display(&self) -> std::path::Display<'_> {
+        self.display()
+    }
+
+    fn file_name(&self) -> Option<&OsStr> {
+        self.file_name()
+    }
+}
+
+impl GetName for PathBuf {
+    fn extension(&self) -> Option<&OsStr> {
+        self.extension()
+    }
+
+    fn display(&self) -> std::path::Display<'_> {
+        self.display()
+    }
+
+    fn file_name(&self) -> Option<&OsStr> {
+        self.file_name()
     }
 }
 

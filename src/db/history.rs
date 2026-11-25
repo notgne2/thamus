@@ -5,7 +5,7 @@ use tracing::{debug, instrument, trace};
 
 use crate::messages;
 
-#[instrument(level = "debug", skip_all)]
+#[instrument(level = "debug", skip_all, fields(id))]
 pub async fn erase_all(pool: &SqlitePool, id: &str) -> Result<u64> {
     let result = sqlx::query("DELETE FROM history WHERE instance_id = ?1")
         .bind(id)
@@ -18,8 +18,6 @@ pub async fn erase_all(pool: &SqlitePool, id: &str) -> Result<u64> {
         .execute(pool)
         .await
         .context("Wiping out base prompts")?;
-
-    trace!("Erased all history from {}", id);
 
     Ok(result.rows_affected())
 }

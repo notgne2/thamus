@@ -18,8 +18,8 @@ pub async fn save_compaction(
         "
         UPDATE base_prompts
         SET
-            active_base_prompt = practical_base_prompt,
-            active_llm_tools = practical_llm_tools
+            active_instructions = practical_instructions,
+            active_tool_definitions = practical_tool_definitions
         WHERE instance_id = (SELECT instance_id FROM history WHERE id = ?1 LIMIT 1);
         ",
     )

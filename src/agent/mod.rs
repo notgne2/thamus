@@ -233,7 +233,7 @@ impl Agent {
         Ok(())
     }
 
-    #[instrument(skip_all)]
+    #[instrument(level = "trace", skip_all)]
     pub async fn insert(&self, msg: messages::MessageEntry) -> Result<()> {
         db::history::insert(&self.common.pool, &self.id, &msg)
             .await
@@ -242,7 +242,7 @@ impl Agent {
         Ok(())
     }
 
-    #[instrument(skip_all)]
+    #[instrument(level = "trace", skip_all)]
     pub async fn erase_all_history(&self) -> Result<()> {
         db::history::erase_all(&self.common.pool, &self.id)
             .await
@@ -251,7 +251,7 @@ impl Agent {
         Ok(())
     }
 
-    #[instrument(skip_all)]
+    #[instrument(level = "trace", skip_all)]
     pub async fn copy_from(
         &self,
         limit: Option<u16>,
@@ -263,7 +263,7 @@ impl Agent {
             .context("Copying other agent's history to this agent")
     }
 
-    #[instrument(skip_all)]
+    #[instrument(level = "info", skip_all, fields(instance_id = self.id, force = force))]
     pub async fn respond<
         C: AgentConfigSource + AgentToolsetSource + AgentInstructionsSource + Copy,
     >(
@@ -277,6 +277,8 @@ impl Agent {
         Option<impl Stream<Item = std::result::Result<AgentOutput, ResponseError>>>,
         ResponseError,
     > {
+        info!("Responding to message: {msg:?}");
+
         db::history::insert(&self.common.pool, &self.id, &msg)
             .await
             .context("Inserting target message")?;
@@ -385,6 +387,8 @@ impl Agent {
                 }
             }
         };
+
+        info!("Done responding");
 
         Ok(Some(output_stream))
     }
@@ -497,6 +501,7 @@ impl Agent {
         Ok(())
     }
 
+    #[instrument(level = "trace", skip_all)]
     async fn handle_final_llm_stream_item(
         &self,
         config_snapshot: &ConfigSnapshot,
@@ -764,7 +769,7 @@ impl Agent {
         Ok(stream! {
             let turns: u8 = ctx.get_config().await.behavior.turns;
             for round in 0..=turns {
-                info!("Start round {}", round);
+                debug!("Starting resposnse round {}", round);
 
                 let config_snapshot = snapshot_config(&self.common.config).await;
                 let sub_config: &AgentConfig = &*ctx.get_config().await;
@@ -772,11 +777,11 @@ impl Agent {
                 let toolset: &tooling::BotToolSet = &*ctx.get_toolset().await?;
                 let instructions: String = ctx.get_instructions().await?.to_string();
 
-                trace!("Getting history with base prompt");
+                trace!("Getting full prompt");
 
                 let full_prompt = self.get_prompt_with_inputs(&self.common.config, &config_snapshot, sub_config, toolset, instructions).await.context("Getting prompt")?;
 
-                trace!("Creating LLM response stream");
+                trace!("Calling LLM");
 
                 let stream = llm::stream_llm_messages(
                     &config_snapshot,
@@ -792,6 +797,8 @@ impl Agent {
                 futures::pin_mut!(stream);
 
                 let mut needs_more = false;
+
+                trace!("Streaming LLM response");
 
                 while let Some(result) = stream.next().await {
                     let (r#final, mut item, usage) = match result.context("Streaming LLM response")? {
@@ -847,7 +854,7 @@ impl Agent {
                 }
 
                 if !needs_more {
-                    info!("Response was final, no more looping");
+                    debug!("Response was final, no more looping");
                     break;
                 }
             }

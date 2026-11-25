@@ -50,32 +50,35 @@ pub async fn make_cachy_base_prompt(
     id: &str,
 
     new_instructions: &str,
-    new_definitions: BTreeMap<String, messages::ToolingDefinition>,
+    new_tool_definitions: BTreeMap<String, messages::ToolingDefinition>,
 ) -> Result<messages::BasePrompt> {
-    trace!("Fetching base prompt details from db");
+    trace!("Fetching saved prompt information from db");
 
-    trace!("Getting new base prompt");
+    let (
+        active_instructions,
+        practical_instructions,
+        active_tool_definitions,
+        practical_tool_definitions,
+    ) = db::base_prompt::get_or_insert_base_prompt(
+        pool,
+        id,
+        new_instructions,
+        &new_tool_definitions,
+    )
+    .await?;
 
-    let (active_instructions, practical_instructions, active_definitions, practical_definitions) =
-        db::base_prompt::get_or_insert_base_prompt(pool, id, new_instructions, &new_definitions)
-            .await?;
-
-    trace!("Comparing practical and new base prompt");
+    trace!("Comparing practical and new instructions");
 
     if practical_instructions != new_instructions {
-        trace!(
-            "Practical base prompt is not equal to new base prompt, running update of practical base prompt in db"
-        );
+        trace!("Practical instructions are not equal to new instructions, updating in db");
 
         let really_updated =
-            db::base_prompt::update_practical_base_prompt(pool, id, new_instructions)
+            db::base_prompt::update_practical_instructions(pool, id, new_instructions)
                 .await
-                .context("updating practical base prompt in db")?;
+                .context("updating practical instructions in db")?;
 
         if really_updated {
-            trace!(
-                "Practical base prompt was really updated, so inserting prompt diff message into history"
-            );
+            trace!("Practical instructions were updated, making diff message");
 
             let diff =
                 agent_utils::simple_diff::simple_diff(&practical_instructions, new_instructions);
@@ -91,41 +94,37 @@ pub async fn make_cachy_base_prompt(
                 ))
             };
 
-            trace!("Inserting prompt diff into history and updating practical prompt in db");
-
             db::history::insert(pool, id, &diff_msg)
                 .await
                 .context("inserting diff message into history")?;
         }
     }
 
-    trace!("Comparing practical definitions");
+    trace!("Comparing practical and new tool definitions");
 
-    let definitions_diff = agent_utils::json_diff::json_diff(
-        &serde_json::to_value(practical_definitions)
+    let tool_definitions_diff = agent_utils::json_diff::json_diff(
+        &serde_json::to_value(practical_tool_definitions)
             .context("Serializing practical definitions to JSON value")?,
-        &serde_json::to_value(&new_definitions)
+        &serde_json::to_value(&new_tool_definitions)
             .context("Serializing new definitions to JSON value")?,
         &[&[None, Some("tools")]],
     );
 
-    if !definitions_diff.trim().is_empty() {
-        trace!("Definitions diff not empty, running update of practical definitions in db");
+    if !tool_definitions_diff.trim().is_empty() {
+        trace!("Tool definitions diff not empty, updating practical tool definitions in db");
 
         let really_updated =
-            db::base_prompt::update_practical_definitions(pool, id, &new_definitions)
+            db::base_prompt::update_practical_tool_definitions(pool, id, &new_tool_definitions)
                 .await
                 .context("updating practical definitions in db")?;
 
         if really_updated {
-            trace!(
-                "Practical definitions really updated, inserting practical definition diff message"
-            );
+            trace!("Practical tool definitions updated, making diff message");
 
             let diff_msg = {
                 let rendered_diff_template = formatx!(
                     &sub_config.prompt.base.messages.definitions_diff.clone(),
-                    diff = definitions_diff,
+                    diff = tool_definitions_diff,
                     format_hint = agent_utils::json_diff::FORMAT_HINT,
                 )
                 .context("definitions diff template invalid")?;
@@ -140,12 +139,9 @@ pub async fn make_cachy_base_prompt(
         }
     }
 
-    trace!("Done making base prompt and definitions");
-
-    // Ok((active_instructions.into(), active_definitions))
     Ok(messages::BasePrompt {
         instructions: active_instructions.into(),
-        shown_definitions: active_definitions.into_owned(),
-        real_definitions: new_definitions,
+        shown_tool_definitions: active_tool_definitions.into_owned(),
+        real_tool_definitions: new_tool_definitions,
     })
 }

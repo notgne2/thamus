@@ -205,7 +205,7 @@ pub fn get_missing_tool_call_results(
     Ok(missing)
 }
 
-#[instrument(level = "debug", skip_all)]
+#[instrument(level = "debug", skip_all, fields(id))]
 pub async fn get_prompt(
     common: &CommonResources,
     config_snapshot: &ConfigSnapshot,
@@ -214,7 +214,7 @@ pub async fn get_prompt(
     new_instructions: String,
     new_definitions: BTreeMap<String, messages::ToolingDefinition>,
 ) -> Result<messages::Prompt> {
-    trace!("Getting base prompt text");
+    trace!("Getting base prompt");
 
     let base_prompt = base_prompt::make_cachy_base_prompt(
         sub_config,

@@ -24,7 +24,6 @@ use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio::task;
 use tracing::instrument;
-use tracing::trace;
 
 use crate::utils::TruncatedReadRes;
 
@@ -153,11 +152,6 @@ impl Default for SandboxConfig {
 }
 
 pub async fn safe_ensure_sandbox_dir(in_root: PathBuf, mut path: SandboxPath) -> Result<()> {
-    trace!(
-        "Ensuring sandbox dir: in_root={:?}, path={:?}",
-        in_root, path
-    );
-
     path = path.absolutify();
 
     task::spawn_blocking(move || {
@@ -207,11 +201,6 @@ pub async fn safe_read_sandbox_dir(
     in_root: PathBuf,
     mut path: SandboxPath,
 ) -> Result<mpsc::UnboundedReceiver<SandboxPath>> {
-    trace!(
-        "Reading sandbox dir: in_root={:?}, path={:?}",
-        in_root, path
-    );
-
     path = path.absolutify();
 
     let (tx, rx) = mpsc::unbounded_channel();
@@ -605,12 +594,6 @@ pub async fn make_attachment_from_sandbox(
     filename.push(ext);
 
     let attachment_path = attachments_dir.join(PathBuf::from(filename));
-
-    trace!(
-        "Saving sandbox path {} to attachment path {}",
-        sandbox_path.display(),
-        attachment_path.display()
-    );
 
     let sandbox_reader = safe_sandbox_file_reader(sandbox_config.root_dir.clone(), sandbox_path)
         .await

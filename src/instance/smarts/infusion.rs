@@ -180,7 +180,6 @@ pub async fn create_infusion_message(
     platform_msg: &messages::PlatformMessage,
 ) -> Result<Option<messages::MessageEntry>> {
     let Some(embed_config) = embed_config else {
-        trace!("Embedding disabled, no infusion");
         return Ok(None);
     };
 

@@ -30,8 +30,6 @@ impl Thamus {
         platforms: Vec<Arc<dyn Platform>>,
         platform_instances: Vec<(Arc<dyn PlatformInstance>, InstanceProps)>,
     ) -> anyhow::Result<()> {
-        trace!("Creating data directory");
-
         tokio::fs::create_dir_all("data")
             .await
             .context("Creating data directory")?;

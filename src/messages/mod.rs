@@ -22,8 +22,8 @@ pub struct ToolingDefinition {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BasePrompt {
     pub instructions: String,
-    pub shown_definitions: BTreeMap<String, ToolingDefinition>,
-    pub real_definitions: BTreeMap<String, ToolingDefinition>,
+    pub shown_tool_definitions: BTreeMap<String, ToolingDefinition>,
+    pub real_tool_definitions: BTreeMap<String, ToolingDefinition>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

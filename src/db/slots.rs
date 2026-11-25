@@ -21,10 +21,7 @@ pub async fn acquire_slot(
         src.iter().map(|&s| i16::from(s)).collect()
     };
 
-    trace!(
-        "Choosing one of {:?} slots for is_dream={:?}",
-        slots, is_dream
-    );
+    trace!("Choosing one of {slots:?}");
 
     // Seed rows for every slot in either array — slots are global, not per-kind.
     let all: Vec<i16> = agent_slots

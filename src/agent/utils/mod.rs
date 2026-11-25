@@ -7,7 +7,7 @@ use crate::{messages, utils::sandbox::SandboxPath};
 pub mod json_diff;
 pub mod simple_diff;
 
-#[instrument(level = "trace", skip(bot_message))]
+#[instrument(level = "trace", skip_all)]
 pub fn extract_markdown_attachments(bot_message: &messages::BotMessage) -> Vec<SandboxPath> {
     static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"!\[[^\]]*\]\(([^)]+)\)").unwrap());
     let mut paths = Vec::new();

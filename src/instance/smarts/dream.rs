@@ -4,10 +4,14 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU8;
 
 use anyhow::{Context as _, Result, bail, ensure};
+use async_stream::try_stream;
+use futures::Stream;
 use futures::stream::StreamExt;
 
 use serde::{Deserialize, Serialize};
 
+use tokio::sync::mpsc;
+use tokio::sync::watch;
 use tracing::{debug, instrument, trace};
 
 use crate::CommonResources;
@@ -425,7 +429,7 @@ pub async fn prep_if_should_dream(
         });
 
         if !enough_dream_history && !enough_dream_context {
-            trace!("Dream triggers not satisfied, and not forced - skipping");
+            trace!("Neither of the dream triggers are satisfied");
             return Ok(None);
         }
 
@@ -458,7 +462,7 @@ pub async fn prep_if_should_dream(
             bail!("Original fitting history has no entries?");
         };
 
-        debug!("Dreaming only {fit} entries from original history");
+        debug!("Should dream the oldest {fit} entries from original history");
         Ok(Some(last_original_message_id))
     })
     .await
@@ -467,7 +471,6 @@ pub async fn prep_if_should_dream(
 fn for_dream_state<'a>(
     config_snapshot: &'a ConfigSnapshot,
     dream_context: &mut DreamContext,
-    update_callback: impl Fn(DreamState, u16),
     dream_state: DreamState,
 ) -> (
     Option<&'a llm::LlmConstraints>,
@@ -475,7 +478,6 @@ fn for_dream_state<'a>(
     messages::MessageEntry,
 ) {
     dream_context.saving = dream_state == DreamState::Saving;
-    update_callback(dream_state, 0);
 
     let constraints = (if dream_context.saving {
         &config_snapshot.instance.smarts.dreaming.saving_constraints
@@ -562,23 +564,22 @@ async fn handle_dream_response(
         }
     };
 
-    debug!(
-        "Done with all turns for {current_dream_state}, and have output of {final_str} - starting {selected_dream_state:?}"
-    );
+    debug!("Dream part {current_dream_state} ended with output of {final_str}");
 
     Ok(selected_dream_state)
 }
 
-#[instrument(level = "info", skip(common, config_snapshot, update_callback))]
-pub async fn run_dream(
+#[instrument(level = "info", skip_all, fields(instance_id))]
+pub fn run_dream(
     common: CommonResources,
     config_snapshot: &ConfigSnapshot,
 
     instance_id: &str,
     insert_compaction_after: messages::MessageId,
+) -> impl Stream<Item = Result<(DreamState, u16)>> {
+    let initial_dream_state = DreamState::ReCompaction;
+    let mut selected_dream_state = Some(initial_dream_state);
 
-    update_callback: impl Fn(DreamState, u16) + Copy,
-) -> Result<()> {
     let agent = agent::Agent::new(
         common.clone(),
         Arc::new(AtomicU8::new(0)),
@@ -595,55 +596,52 @@ pub async fn run_dream(
         saving: false,
     };
 
-    let mut selected_dream_state = Some(DreamState::ReCompaction);
     let mut re_compaction: Option<String> = None;
 
-    while let Some(current_dream_state) = selected_dream_state {
-        let (constraints, def_constraints, dream_state_msg) = for_dream_state(
-            config_snapshot,
-            &mut dream_context,
-            update_callback,
-            current_dream_state,
-        );
+    try_stream! {
+        while let Some(current_dream_state) = selected_dream_state {
+            yield (current_dream_state, 0);
 
-        let s = Box::pin(agent.respond(
-            &dream_context,
-            config_snapshot,
-            constraints,
-            dream_state_msg,
-            true,
-        ))
-        .await
-        .context("Responding in dream")?
-        .context("Dream responses should be forced")?;
-        tokio::pin!(s);
+            let (constraints, def_constraints, dream_state_msg) =
+                for_dream_state(config_snapshot, &mut dream_context, current_dream_state);
 
-        while let Some(r) = s.next().await {
-            match r.context("Receiving response chunk for dream")? {
-                crate::instance::agent::AgentOutput::FinalMessage { message, .. } => {
-                    selected_dream_state = handle_dream_response(
-                        &common,
-                        config_snapshot,
-                        insert_compaction_after,
-                        current_dream_state,
-                        &mut re_compaction,
-                        message,
-                    )
-                    .await?;
+            let s = Box::pin(agent.respond(
+                &dream_context,
+                config_snapshot,
+                constraints,
+                dream_state_msg,
+                true,
+            ))
+            .await
+            .context("Responding in dream")?
+            .context("Dream responses should be forced")?;
+            tokio::pin!(s);
+
+            while let Some(r) = s.next().await {
+                match r.context("Receiving response chunk for dream")? {
+                    crate::instance::agent::AgentOutput::FinalMessage { message, .. } => {
+                        selected_dream_state = handle_dream_response(
+                            &common,
+                            config_snapshot,
+                            insert_compaction_after,
+                            current_dream_state,
+                            &mut re_compaction,
+                            message,
+                        )
+                        .await?;
+                    }
+                    crate::instance::agent::AgentOutput::PartialEntry {
+                        usage: Some(usage), ..
+                    } => {
+                        yield (
+                            current_dream_state,
+                            u16::try_from((usage.tokens_generated * 100) / def_constraints.max_gen)
+                                .unwrap_or(u16::MAX),
+                        );
+                    }
+                    _ => {}
                 }
-                crate::instance::agent::AgentOutput::PartialEntry {
-                    usage: Some(usage), ..
-                } => {
-                    update_callback(
-                        current_dream_state,
-                        u16::try_from((usage.tokens_generated * 100) / def_constraints.max_gen)
-                            .unwrap_or(u16::MAX),
-                    );
-                }
-                _ => {}
             }
         }
     }
-
-    Ok(())
 }

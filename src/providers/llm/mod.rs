@@ -266,17 +266,17 @@ async fn request_body(
 
     let mut prompt_instructions = Cow::Borrowed(&base_prompt.instructions);
 
-    if !base_prompt.shown_definitions.is_empty() && config.special_shown_definitions {
+    if !base_prompt.shown_tool_definitions.is_empty() && config.special_shown_definitions {
         kwargs["shown_tools"] = json!(
             base_prompt
-                .shown_definitions
+                .shown_tool_definitions
                 .values()
                 .flat_map(|d| &d.tools)
                 .map(LlmTool::to_openai_json)
                 .collect::<Vec<_>>()
         );
 
-        for (name, definition) in &base_prompt.shown_definitions {
+        for (name, definition) in &base_prompt.shown_tool_definitions {
             if let Some(definition_instructions) = &definition.instructions {
                 let prompt_instructions = prompt_instructions.to_mut();
 
@@ -299,12 +299,12 @@ async fn request_body(
     body.insert("chat_template_kwargs".to_string(), kwargs);
 
     let real_definitions = if config.special_shown_definitions {
-        &base_prompt.real_definitions
+        &base_prompt.real_tool_definitions
     } else {
-        &base_prompt.shown_definitions
+        &base_prompt.shown_tool_definitions
     };
 
-    if !base_prompt.real_definitions.is_empty() {
+    if !base_prompt.real_tool_definitions.is_empty() {
         body.insert(
             "tools".to_string(),
             json!(

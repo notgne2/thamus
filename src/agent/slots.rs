@@ -40,7 +40,7 @@ pub async fn get_slot(
     .await
     .context("Failed to acquire slot")?;
 
-    trace!("Acquired slot {slot}");
+    trace!("Acquired slot {slot}, setting up slot contents");
 
     if let (Some(last_instance_id), Some(last_was_dream)) = (last_instance_id, last_was_dream)
         && (last_instance_id != id || last_was_dream != is_dream)
@@ -53,10 +53,9 @@ pub async fn get_slot(
         client
             .post(format!(
                 "{}/slots/{}?action=save",
-                llm_config.base_url,
-                slot
+                llm_config.base_url, slot
             ))
-            .json(&serde_json::json!({"filename": format!("{}_{}.bin", last_instance_id, if last_was_dream { "dream" } else { "agent" })}))
+            .json(&serde_json::json!({"filename": format!("{}.bin", last_instance_id)}))
             .send()
             .await
             .context("Failed to save previous inhabitant of slot")?;
@@ -66,10 +65,9 @@ pub async fn get_slot(
         client
             .post(format!(
                 "{}/slots/{}?action=restore",
-                llm_config.base_url,
-                slot
+                llm_config.base_url, slot
             ))
-            .json(&serde_json::json!({"filename": format!("{}_{}.bin", id, if is_dream { "dream" } else { "agent" })}))
+            .json(&serde_json::json!({"filename": format!("{}.bin", id)}))
             .send()
             .await
             .context("Failed to load current instance contents into slot")?;

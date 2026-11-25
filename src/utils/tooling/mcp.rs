@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tokio::process::Command;
 use tokio::sync::{RwLock, RwLockReadGuard};
-use tracing::{error, instrument, trace};
+use tracing::{error, info, instrument, trace};
 
 use crate::config::ConfigSnapshot;
 use crate::messages::{self};
@@ -352,6 +352,8 @@ async fn create_index(
     mcp_config: &McpConfig,
     sandbox_config: &SandboxConfig,
 ) -> HashMap<String, McpEntry> {
+    info!("Indexing MCP servers");
+
     let configured_servers = &mcp_config.servers;
 
     let mut entries = HashMap::new();

@@ -1,7 +1,7 @@
 use similar::{ChangeTag, TextDiff};
 use tracing::instrument;
 
-#[instrument(level = "trace", skip(old, new))]
+#[instrument(level = "trace", skip_all)]
 pub fn simple_diff(old: &str, new: &str) -> String {
     let diff = TextDiff::from_lines(old, new);
     let lines: Vec<_> = diff

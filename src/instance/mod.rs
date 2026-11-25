@@ -355,10 +355,6 @@ impl Instance {
         config_snapshot: &ConfigSnapshot,
         platform_msg: &messages::PlatformMessage,
     ) -> anyhow::Result<bool> {
-        if platform_msg.text == "norespond" {
-            return Ok(false);
-        }
-
         let username = self
             .platform_instance
             .get_username()
@@ -459,6 +455,8 @@ impl Instance {
         config_snapshot: &ConfigSnapshot,
         msg: messages::MessageEntry,
     ) -> Result<Option<u32>> {
+        info!("Responding to message: {msg:?}");
+
         let Some(s) =
             Box::pin(
                 self.agent
@@ -605,9 +603,8 @@ impl Instance {
 
             let self_ = Arc::clone(self);
             spawn_named("maybe_trigger_dream", async move {
-                if let Err(e) = self_
-                    .trigger_dream(&config_snapshot, Some(total_tokens))
-                    .await
+                if let Err(e) =
+                    Box::pin(self_.trigger_dream(&config_snapshot, Some(total_tokens))).await
                 {
                     error!("Failed to passively dream: {e:#?}");
                 }
@@ -661,9 +658,10 @@ impl Instance {
         let dream_lock = match self.dream_lock.try_acquire() {
             Ok(l) => l,
             Err(TryAcquireError::NoPermits) => {
-                trace!("Dream ongoing, skipping");
                 if context_size.is_none() {
                     trace!("Dream is forced, skipping after ongoing dream ends");
+                } else {
+                    trace!("Dream ongoing, skipping passive dream");
                 }
                 return Ok(());
             }
@@ -680,35 +678,39 @@ impl Instance {
         .context("Preparing dream if should dream")?;
 
         if let Some(insert_compaction_after) = insert_compaction_after {
-            let r = Box::pin(smarts::dream::run_dream(
+            debug!("Determined we should dream, starting dream");
+
+            let s = smarts::dream::run_dream(
                 self.common.clone(),
                 config_snapshot,
                 &self.id,
                 insert_compaction_after,
-                |dream_state, pct| {
-                    let platform_instance = Arc::clone(&self.platform_instance);
-                    spawn_named("send_dream_partial", async move {
-                        if let Err(e) = platform_instance
-                            .send_partial(PartialUpdate::Dream(
-                                context_size.is_none(),
-                                dream_state,
-                                pct,
-                            ))
-                            .await
-                        {
-                            error!("failed to send forced dream status: {}", e);
-                        }
-                    });
-                },
-            ))
-            .await;
+            );
+
+            tokio::pin!(s);
+
+            while let Some(r) = s.next().await {
+                let (dream_state, pct) = r.context("Dreaming")?;
+
+                let platform_instance = Arc::clone(&self.platform_instance);
+                spawn_named("send_dream_partial", async move {
+                    if let Err(e) = platform_instance
+                        .send_partial(PartialUpdate::Dream(
+                            context_size.is_none(),
+                            dream_state,
+                            pct,
+                        ))
+                        .await
+                    {
+                        error!("failed to send forced dream status: {}", e);
+                    }
+                });
+            }
 
             // in case the instance updated its status during the dream? todo not always
             self.set_status_from_saved()
                 .await
                 .context("Failed to set current status")?;
-
-            r.context("Dreaming")?;
         }
 
         drop(dream_lock);

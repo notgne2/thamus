@@ -457,6 +457,7 @@ pub async fn prep_if_should_dream(
         else {
             bail!("Original fitting history has no entries?");
         };
+
         debug!("Dreaming only {fit} entries from original history");
         Ok(Some(last_original_message_id))
     })
@@ -512,11 +513,10 @@ async fn handle_dream_response(
     common: &CommonResources,
     config_snapshot: &ConfigSnapshot,
     insert_compaction_after: messages::MessageId,
-    dream_state: DreamState,
-    active_dream_state: &mut Option<DreamState>,
+    current_dream_state: DreamState,
     re_compaction: &mut Option<String>,
     message: messages::BotMessage,
-) -> Result<()> {
+) -> Result<Option<DreamState>> {
     let final_str = message
         .content
         .into_iter()
@@ -527,7 +527,7 @@ async fn handle_dream_response(
         .collect::<Vec<_>>()
         .join("\n\n");
 
-    *active_dream_state = match dream_state {
+    let selected_dream_state = match current_dream_state {
         DreamState::ReCompaction => {
             *re_compaction = Some(final_str.clone());
             Some(DreamState::Saving)
@@ -563,10 +563,10 @@ async fn handle_dream_response(
     };
 
     debug!(
-        "Done with all turns for {dream_state}, and have output of {final_str} - starting {active_dream_state:?}"
+        "Done with all turns for {current_dream_state}, and have output of {final_str} - starting {selected_dream_state:?}"
     );
 
-    Ok(())
+    Ok(selected_dream_state)
 }
 
 #[instrument(level = "info", skip(common, config_snapshot, update_callback))]
@@ -595,14 +595,15 @@ pub async fn run_dream(
         saving: false,
     };
 
-    let mut active_dream_state = Some(DreamState::ReCompaction);
+    let mut selected_dream_state = Some(DreamState::ReCompaction);
     let mut re_compaction: Option<String> = None;
-    while let Some(dream_state) = active_dream_state {
+
+    while let Some(current_dream_state) = selected_dream_state {
         let (constraints, def_constraints, dream_state_msg) = for_dream_state(
             config_snapshot,
             &mut dream_context,
             update_callback,
-            dream_state,
+            current_dream_state,
         );
 
         let s = Box::pin(agent.respond(
@@ -620,12 +621,11 @@ pub async fn run_dream(
         while let Some(r) = s.next().await {
             match r.context("Receiving response chunk for dream")? {
                 crate::instance::agent::AgentOutput::FinalMessage { message, .. } => {
-                    handle_dream_response(
+                    selected_dream_state = handle_dream_response(
                         &common,
                         config_snapshot,
                         insert_compaction_after,
-                        DreamState::Compaction,
-                        &mut active_dream_state,
+                        current_dream_state,
                         &mut re_compaction,
                         message,
                     )
@@ -635,7 +635,7 @@ pub async fn run_dream(
                     usage: Some(usage), ..
                 } => {
                     update_callback(
-                        dream_state,
+                        current_dream_state,
                         u16::try_from((usage.tokens_generated * 100) / def_constraints.max_gen)
                             .unwrap_or(u16::MAX),
                     );

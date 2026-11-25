@@ -430,7 +430,7 @@ impl Instance {
         &self,
         config_snapshot: &ConfigSnapshot,
         error: &anyhow::Error,
-    ) -> Result<String> {
+    ) -> Result<()> {
         let public_error_text = formatx!(
             &config_snapshot.instance.messages.public_error,
             error = error
@@ -445,7 +445,12 @@ impl Instance {
         .await
         .context("inserting public response error entry into history")?;
 
-        Ok(public_error_text)
+        self.platform_instance
+            .send_final(Err(&public_error_text))
+            .await
+            .context("sending public error message")?;
+
+        Ok(())
     }
 
     #[instrument(skip_all)]
@@ -478,51 +483,32 @@ impl Instance {
                     if let agent::ResponseError::LlmCall(llm::CallError::OpenAI(
                         llm::openai::CallError::Server(_status, ref body),
                     )) = err
-                        && body.get("type")
-                            == Some(&serde_json::Value::String(
-                                "exceed_context_size_error".to_string(),
-                            ))
+                        && body
+                            .get("type")
+                            .and_then(|x| x.as_str())
+                            .is_some_and(|s| s == "exceed_context_size_error")
                     {
                         warn!("Context size exceeded, forcing dream");
 
                         if let Err(dream_err) =
                             Box::pin(self.trigger_dream(&config_snapshot, None)).await
                         {
-                            let text = self
-                                .handle_response_error(
-                                    &config_snapshot,
-                                    &anyhow!("Dreaming away overflowed context: {dream_err}"),
-                                )
-                                .await?;
-                            self.platform_instance
-                                .send_final(Err(&text))
-                                .await
-                                .context("sending final bot dream error message")?;
+                            self.handle_response_error(
+                                &config_snapshot,
+                                &anyhow!("Dreaming away overflowed context: {dream_err}"),
+                            )
+                            .await?;
                         }
 
                         return Box::pin(Arc::clone(self).respond(&config_snapshot, msg)).await;
                     }
 
-                    let text = self
-                        .handle_response_error(&config_snapshot, &anyhow!("Responding: {err}"))
+                    self.handle_response_error(&config_snapshot, &anyhow!("Responding: {err}"))
                         .await?;
-                    self.platform_instance
-                        .send_final(Err(&text))
-                        .await
-                        .context("sending final bot error message")?;
 
                     return Err(err).context("Response stream item");
                 }
             };
-
-            if let agent::AgentOutput::FinalMessage {
-                usage: Some(usage), ..
-            } = &x
-                && last_usage.is_none()
-            {
-                last_usage =
-                    Some(usage.input_tokens + usage.cached_tokens + usage.tokens_generated);
-            }
 
             match x {
                 agent::AgentOutput::FinalMessage {
@@ -530,6 +516,12 @@ impl Instance {
                     usage,
                     complete,
                 } => {
+                    if let Some(u) = &usage
+                        && last_usage.is_none()
+                    {
+                        last_usage = Some(u.input_tokens + u.cached_tokens + u.tokens_generated);
+                    }
+
                     self.platform_instance
                         .send_final(Ok((&message, usage.as_ref(), complete)))
                         .await
@@ -669,13 +661,9 @@ impl Instance {
         let dream_lock = match self.dream_lock.try_acquire() {
             Ok(l) => l,
             Err(TryAcquireError::NoPermits) => {
+                trace!("Dream ongoing, skipping");
                 if context_size.is_none() {
-                    trace!(
-                        "Dream is forced and another is already ongoing - waiting for it, then skipping"
-                    );
-                    let _ = self.dream_lock.acquire().await?;
-                } else {
-                    trace!("Dream is passive, and another is already ongoing - skipping");
+                    trace!("Dream is forced, skipping after ongoing dream ends");
                 }
                 return Ok(());
             }
@@ -720,10 +708,10 @@ impl Instance {
                 .await
                 .context("Failed to set current status")?;
 
-            drop(dream_lock);
-
             r.context("Dreaming")?;
         }
+
+        drop(dream_lock);
 
         Ok(())
     }

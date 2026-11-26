@@ -241,7 +241,7 @@ impl Accumulator {
                 | "response.content_part.done",
             ) => {}
 
-            Some("error") => {
+            Some("error" | "server_error") => {
                 error!("Error inside the response stream? {:#?}", chunk);
                 bail!("Error inside the response stream: {chunk:#?}");
             }

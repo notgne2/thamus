@@ -32,6 +32,12 @@ pub enum HistoryCmd {
         instance_id: String,
     },
 
+    #[bpaf(command("concise"))]
+    Concise {
+        #[bpaf(positional("INSTANCE_ID"))]
+        instance_id: String,
+    },
+
     #[bpaf(command("nuke"))]
     Nuke,
 }
@@ -43,6 +49,7 @@ pub async fn run_history(cmd: HistoryCmd, server: &ServerConfig) -> Result<()> {
         HistoryCmd::Get { instance_id } => get_history(&client, &instance_id).await,
         HistoryCmd::Dump => dump_history(&client).await,
         HistoryCmd::Delete { instance_id } => wipe_history(&client, &instance_id).await,
+        HistoryCmd::Concise { instance_id } => make_history_concise(&client, &instance_id).await,
         HistoryCmd::Nuke => nuke_history(&client).await,
     }
 }
@@ -199,6 +206,26 @@ impl Client {
             .context("decoding deletion result")?;
 
         Ok(deleted.deleted)
+    }
+
+    async fn make_concise(&self, instance_id: &str) -> Result<u64> {
+        trace!("Making history concise for instance_id: {}", instance_id);
+
+        let url = format!("{}/api/history/{}/concise", self.base, encode(instance_id));
+
+        let result: Deleted = self
+            .http
+            .post(&url)
+            .send()
+            .await
+            .context("requesting history concision")?
+            .error_for_status()
+            .context("history concision request failed")?
+            .json()
+            .await
+            .context("decoding history concision result")?;
+
+        Ok(result.deleted)
     }
 
     async fn list_memories(&self, include_hidden: bool) -> Result<Vec<crate::mem::Recall>> {
@@ -483,6 +510,12 @@ async fn wipe_history(client: &Client, instance_id: &str) -> Result<()> {
         .paint(deleted.to_string());
     let inst = Style::new().fg(Color::Cyan).bold().paint(instance_id);
     println!("{icon} Deleted {num} history entries for instance {inst}");
+    Ok(())
+}
+
+async fn make_history_concise(client: &Client, instance_id: &str) -> Result<()> {
+    let removed = client.make_concise(instance_id).await?;
+    println!("Removed {removed} history entries while making instance '{instance_id}' concise.");
     Ok(())
 }
 

@@ -73,7 +73,7 @@ pub struct LlmConfig {
 
     /// Where to optionally write a dump of openai history for debugging
     #[serde(default)]
-    pub openai_history_dump: Option<PathBuf>,
+    pub openai_request_dump: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -212,25 +212,6 @@ async fn request_body(
         .await
         .map_err(CallError::ToOpenAI)?;
 
-    if let Some(p) = config.openai_history_dump.clone() {
-        let openai_history = openai_history.clone();
-        spawn_named("openai_history_dump", async move {
-            let r = async || {
-                let openai_history_json =
-                    serde_json::to_string(&openai_history).context("Serializing openai history")?;
-                fs::write(p, openai_history_json)
-                    .await
-                    .context("Writing openai history dump")?;
-
-                anyhow::Ok(())
-            };
-
-            if let Err(e) = r().await {
-                error!("Failed to write openai history dump: {e}");
-            }
-        });
-    }
-
     let constraints = constraints_override.unwrap_or(&config.default_constraints);
     let thinking = constraints.max_think > 0;
 
@@ -319,6 +300,25 @@ async fn request_body(
 
     if let Some(slot) = id_slot {
         body.insert("id_slot".to_string(), json!(slot));
+    }
+
+    if let Some(p) = config.openai_request_dump.clone() {
+        let body = body.clone();
+        spawn_named("openai_request_dump", async move {
+            let r = async || {
+                let openai_request_json =
+                    serde_json::to_string(&body).context("Serializing OpenAI request")?;
+                fs::write(p, openai_request_json)
+                    .await
+                    .context("Writing OpenAI request dump")?;
+
+                anyhow::Ok(())
+            };
+
+            if let Err(e) = r().await {
+                error!("Failed to write OpenAI request dump: {e}");
+            }
+        });
     }
 
     Ok(Value::Object(body))

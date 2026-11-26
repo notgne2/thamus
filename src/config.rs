@@ -237,14 +237,14 @@ impl Config {
 
         {
             let config_snapshot = snapshot_config(&shared_config).await;
-            let selfserve_config_file = config_snapshot
+            let selfserve_config_dir = config_snapshot
                 .default_agent()
                 .sandbox
                 .root_dir
                 .join("home")
-                .join("config.json");
+                .join("settings");
             watches.add(
-                &selfserve_config_file,
+                &selfserve_config_dir,
                 WatchMask::CREATE | WatchMask::DELETE | WatchMask::MODIFY | WatchMask::MOVE,
             )?;
         }

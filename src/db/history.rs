@@ -22,7 +22,7 @@ pub async fn erase_all(pool: &SqlitePool, id: &str) -> Result<u64> {
     Ok(result.rows_affected())
 }
 
-#[instrument(level = "debug", skip_all)]
+#[instrument(level = "debug", skip_all, fields(insert_after))]
 pub async fn insert_after(
     pool: &SqlitePool,
     insert_after: messages::MessageId,
@@ -53,6 +53,13 @@ pub async fn insert_after(
     Ok(id)
 }
 
+const CONCISE_EXCLUDED_FILTER: &str = r"(
+    json_type(json, '$.SystemEntry.DefinitionsDiff') IS NOT NULL
+    OR json_type(json, '$.SystemEntry.InstructionDiff') IS NOT NULL
+    OR json_type(json, '$.SystemEntry.Infusion') IS NOT NULL
+    OR json_type(json, '$.BotEntry.kind.Reasoning') IS NOT NULL
+)";
+
 const GET_HISTORY_SELECT: &str = r"
 WITH latest_compaction AS (
       SELECT created_at, sorting
@@ -78,7 +85,7 @@ OR
 ORDER BY created_at ASC, sorting ASC
 ";
 
-#[instrument(level = "trace", skip_all)]
+#[instrument(level = "trace", skip_all, fields(id))]
 pub async fn get_history(
     pool: &SqlitePool,
     id: &str,
@@ -146,7 +153,7 @@ pub async fn dump_all_history(pool: &SqlitePool, limit: Option<u16>) -> Result<V
     Ok(history)
 }
 
-#[instrument(level = "trace", skip_all)]
+#[instrument(level = "trace", skip_all, fields(id))]
 pub async fn insert(pool: &SqlitePool, id: &str, msg: &messages::MessageEntry) -> Result<i32> {
     let json_val =
         serde_json::to_value(msg).context("serializing message entry to history JSON")?;
@@ -162,7 +169,7 @@ pub async fn insert(pool: &SqlitePool, id: &str, msg: &messages::MessageEntry) -
     Ok(id)
 }
 
-#[instrument(level = "trace", skip_all)]
+#[instrument(level = "trace", skip_all, fields(from, to))]
 pub async fn copy(
     pool: &SqlitePool,
     limit: Option<u16>,
@@ -184,19 +191,18 @@ pub async fn copy(
 
     let insert_sql = if concise {
         format!(
-            "INSERT INTO history (instance_id, json, created_at, sorting) \
-             SELECT ?3, json, created_at, sorting FROM ({GET_HISTORY_SELECT}) \
-             WHERE NOT ( \
-                 json_type(json, '$.SystemEntry.DefinitionsDiff') IS NOT NULL \
-                 OR json_type(json, '$.SystemEntry.InstructionDiff') IS NOT NULL \
-                 OR json_type(json, '$.SystemEntry.Infusion') IS NOT NULL \
-                 OR json_type(json, '$.BotEntry.kind.Reasoning') IS NOT NULL \
-             );"
+            r"
+            INSERT INTO history (instance_id, json, created_at, sorting)
+            SELECT ?3, json, created_at, sorting FROM ({GET_HISTORY_SELECT} LIMIT ?2)
+            WHERE NOT {CONCISE_EXCLUDED_FILTER};
+            "
         )
     } else {
         format!(
-            "INSERT INTO history (instance_id, json, created_at, sorting) \
-             SELECT ?3, json, created_at, sorting FROM ({GET_HISTORY_SELECT});"
+            r"
+            INSERT INTO history (instance_id, json, created_at, sorting)
+            SELECT ?3, json, created_at, sorting FROM ({GET_HISTORY_SELECT} LIMIT ?2);
+            "
         )
     };
 
@@ -213,4 +219,22 @@ pub async fn copy(
     trace!("Copied {ra} rows from {from} to {to} (last original id: {last_original_id:?})",);
 
     Ok((ra, last_original_id))
+}
+
+#[instrument(level = "trace", skip_all, fields(id))]
+pub async fn make_concise(pool: &SqlitePool, id: &str) -> Result<u64> {
+    let result = sqlx::query(AssertSqlSafe(format!(
+        r"
+        DELETE FROM history
+        WHERE id IN (
+            SELECT id FROM ({GET_HISTORY_SELECT}) WHERE {CONCISE_EXCLUDED_FILTER}
+        )
+        "
+    )))
+    .bind(id)
+    .execute(pool)
+    .await
+    .context("Making conversation history concise")?;
+
+    Ok(result.rows_affected())
 }

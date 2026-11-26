@@ -379,6 +379,7 @@ impl Agent {
                         Ok(x) => yield x,
                     }
                 } else {
+                    info!("Done responding");
                     slots::release_slot(&self.common, id_slot)
                         .await
                         .context("Releasing slot after response stream ended")?;
@@ -387,8 +388,6 @@ impl Agent {
                 }
             }
         };
-
-        info!("Done responding");
 
         Ok(Some(output_stream))
     }
@@ -769,7 +768,7 @@ impl Agent {
         Ok(stream! {
             let turns: u8 = ctx.get_config().await.behavior.turns;
             for round in 0..=turns {
-                debug!("Starting resposnse round {}", round);
+                info!("Starting response round {}", round);
 
                 let config_snapshot = snapshot_config(&self.common.config).await;
                 let sub_config: &AgentConfig = &*ctx.get_config().await;
@@ -781,7 +780,7 @@ impl Agent {
 
                 let full_prompt = self.get_prompt_with_inputs(&self.common.config, &config_snapshot, sub_config, toolset, instructions).await.context("Getting prompt")?;
 
-                trace!("Calling LLM");
+                debug!("Calling LLM");
 
                 let stream = llm::stream_llm_messages(
                     &config_snapshot,
@@ -798,7 +797,7 @@ impl Agent {
 
                 let mut needs_more = false;
 
-                trace!("Streaming LLM response");
+                debug!("Streaming LLM response");
 
                 while let Some(result) = stream.next().await {
                     let (r#final, mut item, usage) = match result.context("Streaming LLM response")? {

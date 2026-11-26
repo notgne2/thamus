@@ -108,6 +108,12 @@ impl Api {
         Ok(Json(history_out))
     }
 
+    #[oai(path = "/history/:instance_id/concise", method = "post")]
+    async fn make_history_concise(&self, instance_id: Path<String>) -> poem::Result<Json<Deleted>> {
+        let deleted = db::history::make_concise(&self.common.pool, &instance_id.0).await?;
+        Ok(Json(Deleted { deleted }))
+    }
+
     #[oai(path = "/history/:instance_id", method = "delete")]
     async fn delete_history(&self, instance_id: Path<String>) -> poem::Result<Json<Deleted>> {
         let result = sqlx::query("DELETE FROM history WHERE instance_id = ?1")

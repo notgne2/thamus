@@ -69,7 +69,7 @@ pub struct ReceivedAttachment {
 }
 
 impl ReceivedAttachment {
-    #[instrument(level = "debug", skip(self))]
+    #[instrument(level = "debug", skip_all)]
     pub async fn save(&self, client: &reqwest::Client, dir: &Path) -> Result<PathBuf> {
         fs::create_dir_all(dir)
             .await

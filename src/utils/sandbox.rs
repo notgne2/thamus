@@ -81,19 +81,19 @@ impl GetName for SandboxPath {
 
 impl GetName for Path {
     fn extension(&self) -> Option<&OsStr> {
-        Path::extension(self)
+        Self::extension(self)
     }
 
     fn display(&self) -> std::path::Display<'_> {
-        Path::display(self)
+        Self::display(self)
     }
 
     fn file_name(&self) -> Option<&OsStr> {
-        Path::file_name(self)
+        Self::file_name(self)
     }
 
     fn display_file_name(&self) -> Option<std::ffi::os_str::Display<'_>> {
-        Some(Path::file_name(self)?.display())
+        Some(Self::file_name(self)?.display())
     }
 }
 

@@ -342,12 +342,12 @@ impl tooling::BotTool for WorkLock {
         json!({
             "type": "object",
             "properties": {
-                "work_forever": {
+                "lock_enabled": {
                     "type": "boolean",
-                    "description": "Whether to work forever"
+                    "description": "Whether to enable work lock"
                 },
             },
-            "required": ["work_forever"]
+            "required": ["lock_enabled"]
         })
     }
 
@@ -357,12 +357,12 @@ impl tooling::BotTool for WorkLock {
         _sub_config: &AgentConfig,
         args: serde_json::Value,
     ) -> Result<(String, Vec<PathBuf>)> {
-        let work_forever = args
-            .get("work_forever")
+        let lock_enabled = args
+            .get("lock_enabled")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
 
-        if work_forever {
+        if lock_enabled {
             self.0.store(50, std::sync::atomic::Ordering::Relaxed);
 
             Ok(("Work lock enabled".to_string(), vec![]))

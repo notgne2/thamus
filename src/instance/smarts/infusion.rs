@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::SqlitePool;
 use std::collections::HashSet;
-use tracing::{instrument, trace};
+use tracing::instrument;
 
 use crate::{CommonResources, db, mem, messages, providers::embed::EmbedConfig};
 

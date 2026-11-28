@@ -234,8 +234,8 @@ impl Agent {
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub async fn insert(&self, msg: messages::MessageEntry) -> Result<()> {
-        db::history::insert(&self.common.pool, &self.id, &msg)
+    pub async fn insert(&self, msg: &messages::MessageEntry) -> Result<()> {
+        db::history::insert(&self.common.pool, &self.id, msg)
             .await
             .context("Inserting message into history")?;
 
@@ -271,18 +271,11 @@ impl Agent {
         ctx: C,
         config_snapshot: &ConfigSnapshot,
         constraints: Option<&llm::LlmConstraints>,
-        msg: messages::MessageEntry,
         force: bool,
     ) -> std::result::Result<
         Option<impl Stream<Item = std::result::Result<AgentOutput, ResponseError>>>,
         ResponseError,
     > {
-        info!("Responding to message: {msg:?}");
-
-        db::history::insert(&self.common.pool, &self.id, &msg)
-            .await
-            .context("Inserting target message")?;
-
         let working = if force {
             self.cancel_work.notify_waiters();
             Arc::clone(&self.working)
@@ -317,7 +310,7 @@ impl Agent {
                     return;
                 }
 
-                responses_stream = self.responses(ctx, constraints, id_slot) => {
+                responses_stream = Box::pin(self.responses(ctx, constraints, id_slot)) => {
                     responses_stream
                 }
             }?;
@@ -340,7 +333,7 @@ impl Agent {
                     let config_snapshot = snapshot_config(&self.common.config).await;
                     let sub_config = &ctx.get_config().await;
                     let toolset = &ctx.get_toolset().await?;
-                    self.handle_final_llm_stream_item(&config_snapshot, sub_config, toolset, &mut last_partial).await.map(|_| ()).context("Handling cancelled response")?;
+                    let _ = self.handle_final_llm_stream_item(&config_snapshot, sub_config, toolset, &mut last_partial).await.context("Handling cancelled response")?;
                     if let messages::BotEntryKind::BotMessage(bot_message) = last_partial.kind && Self::is_empty_bot_message(sub_config, &bot_message) != Some(false) {
                         yield AgentOutput::FinalMessage {
                             message: bot_message,

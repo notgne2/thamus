@@ -6,7 +6,7 @@ use backon::Retryable;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use tokio::select;
 use tokio::sync::{Notify, RwLock};
-use tracing::{debug, error, info, instrument, trace};
+use tracing::{debug, error, info, instrument};
 
 use crate::config::ConfigSnapshot;
 use crate::instance::InstanceProps;

@@ -106,11 +106,8 @@ impl EventHandler for DiscordPlatformHandler {
             return;
         }
 
-        if msg.author.bot {
-            let text = &msg.content;
-            if text.starts_with('✍') || text.starts_with("[🤖") {
-                return;
-            }
+        if msg.author.bot && (msg.content.starts_with('✍') || msg.content.starts_with("[🤖")) {
+            return;
         }
 
         let instance_id = format!("discord_{}", msg.channel_id);

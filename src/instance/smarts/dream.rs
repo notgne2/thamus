@@ -10,8 +10,6 @@ use futures::stream::StreamExt;
 
 use serde::{Deserialize, Serialize};
 
-use tokio::sync::mpsc;
-use tokio::sync::watch;
 use tracing::{debug, instrument, trace};
 
 use crate::CommonResources;
@@ -605,11 +603,12 @@ pub fn run_dream(
             let (constraints, def_constraints, dream_state_msg) =
                 for_dream_state(config_snapshot, &mut dream_context, current_dream_state);
 
+            agent.insert(&dream_state_msg).await.context("Inserting dream state message")?;
+
             let s = Box::pin(agent.respond(
                 &dream_context,
                 config_snapshot,
                 constraints,
-                dream_state_msg,
                 true,
             ))
             .await

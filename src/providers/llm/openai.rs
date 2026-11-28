@@ -247,47 +247,42 @@ impl Accumulator {
             }
 
             Some("response.completed") => {
-                trace!("Got response.completed event");
-
                 let response = chunk
                     .get("response")
-                    .and_then(|u| u.as_object())
-                    .context("Response missing from response.completed event")?;
+                    .and_then(Value::as_object)
+                    .context("Response missing from response.completed event object")?;
 
                 let usage = response
                     .get("usage")
-                    .and_then(|u| u.as_object())
+                    .and_then(Value::as_object)
                     .context("Usage missing from response.completed response object")?;
 
                 let input_tokens = u32::try_from(
                     usage
                         .get("input_tokens")
-                        .context("Usage missing input_tokens")?
-                        .as_u64()
-                        .context("input_tokens not a number")?,
+                        .and_then(Value::as_u64)
+                        .context("Usage missing input_tokens number")?,
                 )
                 .context("input_tokens too large")?;
 
                 let input_tokens_details = usage
                     .get("input_tokens_details")
-                    .and_then(|u| u.as_object())
-                    .context("Usage missing input_tokens_details")?;
+                    .and_then(Value::as_object)
+                    .context("Usage missing input_tokens_details object")?;
 
                 let cached_tokens = u32::try_from(
                     input_tokens_details
                         .get("cached_tokens")
-                        .context("Input token details missing cached_tokens")?
-                        .as_u64()
-                        .context("cached_tokens not a number")?,
+                        .and_then(Value::as_u64)
+                        .context("Input token details missing cached_tokens number")?,
                 )
                 .context("cached_tokens too large")?;
 
                 let tokens_generated = u32::try_from(
                     usage
                         .get("output_tokens")
-                        .context("Usage missing output_tokens")?
-                        .as_u64()
-                        .context("tokens_generated not a number")?,
+                        .and_then(Value::as_u64)
+                        .context("Usage missing output_tokens number")?,
                 )
                 .context("tokens_generated too large")?;
 

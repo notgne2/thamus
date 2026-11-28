@@ -243,6 +243,14 @@ impl agent::AgentInstructionsSource for &Instance {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+enum RespondError {
+    #[error("context exceeded")]
+    ContextExceeded,
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
+}
+
 impl Instance {
     #[instrument(name = "instance", level = "debug", skip_all)]
     pub async fn run(
@@ -453,17 +461,15 @@ impl Instance {
     async fn respond(
         self: &Arc<Self>,
         config_snapshot: &ConfigSnapshot,
-        msg: messages::MessageEntry,
-    ) -> Result<Option<u32>> {
-        info!("Responding to message: {msg:?}");
+    ) -> std::result::Result<Option<u32>, RespondError> {
+        info!("Responding...");
 
-        let Some(s) =
-            Box::pin(
-                self.agent
-                    .respond(self.as_ref(), config_snapshot, None, msg.clone(), false),
-            )
-            .await
-            .context("Starting response stream")?
+        let Some(s) = Box::pin(
+            self.agent
+                .respond(self.as_ref(), config_snapshot, None, false),
+        )
+        .await
+        .context("Starting response stream")?
         else {
             return Ok(None);
         };
@@ -486,25 +492,13 @@ impl Instance {
                             .and_then(|x| x.as_str())
                             .is_some_and(|s| s == "exceed_context_size_error")
                     {
-                        warn!("Context size exceeded, forcing dream");
-
-                        if let Err(dream_err) =
-                            Box::pin(self.trigger_dream(&config_snapshot, None)).await
-                        {
-                            self.handle_response_error(
-                                &config_snapshot,
-                                &anyhow!("Dreaming away overflowed context: {dream_err}"),
-                            )
-                            .await?;
-                        }
-
-                        return Box::pin(Arc::clone(self).respond(&config_snapshot, msg)).await;
+                        return Err(RespondError::ContextExceeded);
                     }
 
                     self.handle_response_error(&config_snapshot, &anyhow!("Responding: {err}"))
                         .await?;
 
-                    return Err(err).context("Response stream item");
+                    return Err(RespondError::Other(err.into()));
                 }
             };
 
@@ -566,9 +560,11 @@ impl Instance {
             .await
             .context("Checking should respond")?
         {
-            self.agent.insert(msg).await?;
+            self.agent.insert(&msg).await?;
             return Ok(());
         }
+
+        info!("Going to respond to: {msg:?}");
 
         if let Err(err) = self.platform_instance.set_working(true).await {
             error!("Failed to set working state on platform: {err:#?}");
@@ -585,18 +581,43 @@ impl Instance {
         .context("Creating infusion message")?
         {
             self.agent
-                .insert(infusion_msg)
+                .insert(&infusion_msg)
                 .await
                 .context("Inserting infusion message")?;
         }
 
-        let respond_r = Box::pin(self.respond(&config_snapshot, msg)).await;
+        self.agent.insert(&msg).await?;
+
+        let last_total_tokens = loop {
+            match Box::pin(self.respond(&config_snapshot)).await {
+                Ok(x) => break x,
+                Err(RespondError::ContextExceeded) => {
+                    warn!("Context size exceeded, forcing dream");
+
+                    if let Err(dream_err) =
+                        Box::pin(self.trigger_dream(&config_snapshot, None)).await
+                    {
+                        self.handle_response_error(
+                            &config_snapshot,
+                            &anyhow!("Dreaming away overflowed context: {dream_err}"),
+                        )
+                        .await?;
+                    }
+
+                    info!("Forced dream over!");
+                }
+                Err(RespondError::Other(e)) => {
+                    if let Err(err) = self.platform_instance.set_working(false).await {
+                        error!("Failed to unset working on platform after error: {err:#?}");
+                    }
+                    return Err(e);
+                }
+            }
+        };
 
         if let Err(err) = self.platform_instance.set_working(false).await {
-            error!("Failed to set working state on platform: {err:#?}");
+            error!("Failed to unset working on platform: {err:#?}");
         }
-
-        let last_total_tokens = respond_r.context("Responding to message")?;
 
         if let Some(total_tokens) = last_total_tokens {
             trace!("Got total tokens after response: {total_tokens}");
@@ -678,7 +699,7 @@ impl Instance {
         .context("Preparing dream if should dream")?;
 
         if let Some(insert_compaction_after) = insert_compaction_after {
-            debug!("Determined we should dream, starting dream");
+            debug!("Starting dream");
 
             let s = smarts::dream::run_dream(
                 self.common.clone(),
